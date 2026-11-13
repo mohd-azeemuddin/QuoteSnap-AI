@@ -31,6 +31,26 @@ interface ExtractQuoteRequestBody {
   } | null;
 }
 
+const SAMPLE_VOICE_SCRIPTS: Record<string, { fileName: string; script: string }> = {
+  interiors: {
+    fileName: 'hsr-2bhk-hinglish-voice-note.wav',
+    script:
+      'Namaste bhaiya, main Suresh bol raha hoon HSR Layout se. Mere two BHK flat mein ek sliding laminate wardrobe chahiye 8 by 7 feet ka, aur kitchen loft approx 30 square feet. Living room mein false ceiling bhi chahiye 200 square feet ka. Urgent GST quote bhej do please.',
+  },
+  print: {
+    fileName: 'indiranagar-cafe-print-voice-note.wav',
+    script:
+      'Hello boss, Indiranagar 12th Main pe naya bakery open ho raha hai. Ek backlit vinyl glow board chahiye 12 by 3 feet ka, do roll-up standees, aur 1000 matte visiting cards chahiye. Urgent GST quote WhatsApp kar dijiye. Main Rahul bol raha hoon.',
+  },
+  catering: {
+    fileName: 'ecospace-townhall-catering-voice-note.wav',
+    script:
+      'Hi team, this is Deepa calling from Ecospace Bellandur. Friday ko humara team lunch hai 65 log ke liye. 40 South Indian veg buffet plates aur 25 non-veg buffet plates chahiye, plus evening mein 4 masala chai flasks. Please send GST estimate.',
+  },
+};
+
+const sampleVoiceCache = new Map<string, { mimeType: string; data: string; fileName: string }>();
+
 const extractionResponseSchema = {
   type: Type.OBJECT,
   properties: {
@@ -45,11 +65,13 @@ const extractionResponseSchema = {
     },
     customerLocation: {
       type: Type.STRING,
-      description: 'Detected locality/city/site address (e.g., "Whitefield, Bengaluru"), or "Bengaluru" if unspecified.',
+      description:
+        'Detected locality/city/site address (e.g., "Whitefield, Bengaluru"), or "Bengaluru" if unspecified.',
     },
     detectedLanguage: {
       type: Type.STRING,
-      description: 'Detected language/mix in the inquiry, e.g. "Hinglish", "English", "Hindi + English", "Kannada + English".',
+      description:
+        'Detected language/mix in the inquiry, e.g. "Hinglish", "English", "Hindi + English", "Kannada + English".',
     },
     confidenceScore: {
       type: Type.NUMBER,
@@ -58,6 +80,11 @@ const extractionResponseSchema = {
     overallSummary: {
       type: Type.STRING,
       description: 'Crisp 1-sentence summary of what the customer is asking for.',
+    },
+    attachmentTranscript: {
+      type: Type.STRING,
+      description:
+        'Verbatim transcript of any attached voice note and/or OCR text extracted from any attached handwritten note/image. Empty string if only plain text was provided.',
     },
     lineItems: {
       type: Type.ARRAY,
@@ -80,7 +107,8 @@ const extractionResponseSchema = {
           },
           dimensionsNote: {
             type: Type.STRING,
-            description: 'Short note on dimensions or calculation basis, e.g. "8 ft x 7 ft = 56 sq ft" or "Assumed 7 ft standard height".',
+            description:
+              'Short note on dimensions or calculation basis, e.g. "8 ft x 7 ft = 56 sq ft" or "Assumed 7 ft standard height".',
           },
           confidence: {
             type: Type.STRING,
@@ -91,7 +119,14 @@ const extractionResponseSchema = {
             description: 'Brief note on why this catalog item and quantity were extracted.',
           },
         },
-        required: ['catalogItemId', 'matchedName', 'quantity', 'dimensionsNote', 'confidence', 'reasoning'],
+        required: [
+          'catalogItemId',
+          'matchedName',
+          'quantity',
+          'dimensionsNote',
+          'confidence',
+          'reasoning',
+        ],
       },
     },
     missingInfoFlags: {
@@ -104,7 +139,8 @@ const extractionResponseSchema = {
     },
     unmatchedItems: {
       type: Type.ARRAY,
-      description: 'Any requested items/services in the inquiry that do NOT exist in the provided Rate Card.',
+      description:
+        'Any requested items/services in the inquiry that do NOT exist in the provided Rate Card.',
       items: {
         type: Type.STRING,
       },
@@ -127,6 +163,7 @@ const extractionResponseSchema = {
     'detectedLanguage',
     'confidenceScore',
     'overallSummary',
+    'attachmentTranscript',
     'lineItems',
     'missingInfoFlags',
     'unmatchedItems',
@@ -172,7 +209,6 @@ async function generateWithRetry(
     } catch (err) {
       lastError = err;
       const msg = err instanceof Error ? err.message : String(err);
-      // Do not retry auth or bad request errors
       if (msg.includes('API_KEY_INVALID') || msg.includes('PERMISSION_DENIED') || msg.includes('400')) {
         throw err;
       }
@@ -188,6 +224,62 @@ async function startServer() {
 
   app.get('/api/health', (_req, res) => {
     res.json({ ok: true, service: 'quotesnap-ai' });
+  });
+
+  app.get('/api/sample-voice/:presetKey', async (req, res) => {
+    try {
+      const presetKey = req.params.presetKey in SAMPLE_VOICE_SCRIPTS ? req.params.presetKey : 'interiors';
+      const cached = sampleVoiceCache.get(presetKey);
+      if (cached) {
+        res.json(cached);
+        return;
+      }
+
+      const sample = SAMPLE_VOICE_SCRIPTS[presetKey];
+      const ai = getAiClient();
+      const response = await ai.models.generateContent({
+        model: 'gemini-3.8-flash-lite-tts',
+        contents: [
+          {
+            role: 'user',
+            parts: [
+              {
+                text: sample.script,
+                speechMetadata: {
+                  style: 'Natural Indian customer speaking casually on a WhatsApp voice note',
+                },
+              },
+            ],
+          },
+        ],
+        config: {
+          responseModalities: ['AUDIO'],
+          speechConfig: {
+            voiceConfig: {
+              prebuiltVoiceConfig: { voiceName: presetKey === 'catering' ? 'Kore' : 'Puck' },
+            },
+          },
+        },
+      });
+
+      const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
+      if (!base64Audio) {
+        throw new Error('TTS model did not return audio data.');
+      }
+
+      const payload = {
+        mimeType: 'audio/wav',
+        data: base64Audio,
+        fileName: sample.fileName,
+      };
+      sampleVoiceCache.set(presetKey, payload);
+      res.json(payload);
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : 'Failed to generate sample voice note.';
+      console.error('[/api/sample-voice] Error:', message);
+      res.status(500).json({ error: message });
+    }
   });
 
   app.post('/api/extract-quote', async (req, res) => {
@@ -226,11 +318,11 @@ async function startServer() {
 Your ONLY job is to read messy customer inquiries (English, Hinglish, Hindi, Kannada-mixed WhatsApp text, handwritten note photos, site sketches, or voice notes) and extract structured line items matched against the business's Rate Card.
 
 CRITICAL RULES:
-1. NEVER calculate rupee totals, prices, discounts, CGST, SGST, or grand totals. Leave all pricing math to deterministic application code. Do NOT include any rupee prices or totals inside whatsappFollowUpEn or whatsappFollowUpHinglish.
+1. NEVER calculate rupee totals, prices, discounts, CGST, SGST, IGST, or grand totals. Leave all pricing math to deterministic application code. Do NOT include any rupee prices or totals inside whatsappFollowUpEn or whatsappFollowUpHinglish.
 2. Only return catalogItemId values that EXACTLY match an ID in the provided Rate Card JSON.
 3. Convert rectangular dimensions into area when the catalog item unit is "sq ft" (e.g., "8x7 ft wardrobe" -> quantity: 56, dimensionsNote: "8 ft x 7 ft = 56 sq ft").
 4. If a dimension or count is missing, vague, or marked "approx" (e.g., "9 ft width wardrobe" without height, or "40-50 people", or "approx 25 sqft"), make a sensible conservative assumption so a draft quote can be prepared, AND ALWAYS add a clear, specific alert to missingInfoFlags (e.g., "Wall height missing for wardrobe — assumed 7 ft standard height, please confirm").
-5. If an audio recording or handwritten note is attached, transcribe and extract all requirements from it carefully, combining with any text provided.
+5. If an audio recording or handwritten note is attached, transcribe/OCR it into attachmentTranscript clearly so the business owner can verify what was heard/read, and combine with any text provided.
 6. If the customer asks for something not on the Rate Card, list it in unmatchedItems rather than forcing a bad match.`;
 
       const parts: Array<{ text: string } | { inlineData: { mimeType: string; data: string } }> = [];
@@ -253,7 +345,7 @@ CRITICAL RULES:
           },
         });
         parts.push({
-          text: 'Analyze the attached image (handwritten note, sketch with dimensions, or site photo) and extract all items, dimensions, customer name, and location.',
+          text: 'Analyze the attached image (handwritten note, sketch with dimensions, or site photo). Include the extracted OCR text in attachmentTranscript and map all items, dimensions, customer name, and location.',
         });
       }
 
@@ -265,7 +357,7 @@ CRITICAL RULES:
           },
         });
         parts.push({
-          text: 'Listen to the attached customer voice note (may be English, Hinglish, or Hindi) and extract all requested items, quantities, dimensions, and customer details.',
+          text: 'Listen to the attached customer voice note (may be English, Hinglish, or Hindi). Include the verbatim transcript in attachmentTranscript and extract all requested items, quantities, dimensions, and customer details.',
         });
       }
 

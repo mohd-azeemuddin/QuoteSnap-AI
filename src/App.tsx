@@ -1,10 +1,17 @@
 import { useEffect, useMemo, useState } from 'react';
 import { SlidersHorizontal, X } from 'lucide-react';
 import { PRESET_BUSINESSES } from './data/presets.ts';
-import type { AgentExtractionResult, BusinessProfile, QuoteStatus, SavedQuote } from './types.ts';
+import type {
+  AgentExtractionResult,
+  BusinessProfile,
+  QuoteStatus,
+  SavedQuote,
+  SupplyType,
+} from './types.ts';
 import {
   buildQuoteFromExtraction,
   computeQuoteLine,
+  decodeShareableQuote,
   recomputeQuoteLines,
 } from './utils/quoteMath.ts';
 import { TopBar, type AppView } from './components/TopBar.tsx';
@@ -12,6 +19,7 @@ import { RateCardManager, RateCardSidebar } from './components/RateCardPanel.tsx
 import { InquiryInputCard, type MediaAttachment } from './components/InquiryInputCard.tsx';
 import { QuoteOutputPanel } from './components/QuoteOutputPanel.tsx';
 import { HistoryImpactView } from './components/HistoryImpactView.tsx';
+import { ShareableQuoteView } from './components/ShareableQuoteView.tsx';
 
 const STORAGE_KEYS = {
   businesses: 'quotesnap_businesses_v1',
@@ -49,7 +57,19 @@ function loadInitialQuotes(): SavedQuote[] {
   }
 }
 
+function loadSharedQuoteFromUrl(): SavedQuote | null {
+  try {
+    const params = new URLSearchParams(window.location.search);
+    const encoded = params.get('quote');
+    if (!encoded) return null;
+    return decodeShareableQuote(encoded);
+  } catch {
+    return null;
+  }
+}
+
 export default function App() {
+  const [sharedQuote, setSharedQuote] = useState<SavedQuote | null>(loadSharedQuoteFromUrl);
   const [activeView, setActiveView] = useState<AppView>('workspace');
   const [businesses, setBusinesses] = useState<BusinessProfile[]>(loadInitialBusinesses);
   const [activeBusinessId, setActiveBusinessId] = useState<string>(loadInitialActiveBusinessId);
@@ -99,6 +119,18 @@ export default function App() {
     [savedQuotes, activeQuoteId]
   );
 
+  if (sharedQuote) {
+    return (
+      <ShareableQuoteView
+        quote={sharedQuote}
+        onExitShareView={() => {
+          setSharedQuote(null);
+          window.history.replaceState({}, '', window.location.pathname);
+        }}
+      />
+    );
+  }
+
   const handleUpdateBusiness = (updated: BusinessProfile) => {
     setBusinesses((prev) => prev.map((b) => (b.id === updated.id ? updated : b)));
   };
@@ -119,7 +151,6 @@ export default function App() {
   };
 
   const handleLoadSampleNote = (img: MediaAttachment) => {
-    // Ensure Namma Interiors & Modular is selected since the sample note is an interior site list
     if (activeBusiness.presetKey !== 'interiors') {
       const interiors = businesses.find((b) => b.presetKey === 'interiors');
       if (interiors) setActiveBusinessId(interiors.id);
@@ -136,7 +167,6 @@ export default function App() {
     setIsGenerating(true);
     setAgentStepIndex(0);
 
-    // Visual progression through agent stages while waiting on Gemini server endpoint
     const stepTimer1 = window.setTimeout(() => setAgentStepIndex(1), 650);
     const stepTimer2 = window.setTimeout(() => setAgentStepIndex(2), 1400);
 
@@ -171,7 +201,6 @@ export default function App() {
       const extraction = payload.extraction as AgentExtractionResult;
       const processingTimeMs = Number(payload.processingTimeMs) || 1500;
 
-      // Deterministic TypeScript calculation of all line totals, CGST, SGST, and Grand Total
       const newQuote = buildQuoteFromExtraction({
         business: activeBusiness,
         extraction,
@@ -202,19 +231,39 @@ export default function App() {
     setSavedQuotes((prev) => prev.map((q) => (q.id === updated.id ? updated : q)));
   };
 
-  const handleUpdateLineQuantity = (lineId: string, quantity: number) => {
+  const handleUpdateLineQuantity = (
+    lineId: string,
+    quantity: number,
+    dimensionsNote?: string
+  ) => {
     if (!activeQuote) return;
+    const supplyType = activeQuote.supplyType || 'intra';
     const modified = activeQuote.lines.map((line) =>
-      line.id === lineId ? { ...line, quantity: Math.max(0, quantity) } : line
+      line.id === lineId
+        ? {
+            ...line,
+            quantity: Math.max(0, quantity),
+            dimensionsNote: dimensionsNote ?? line.dimensionsNote,
+          }
+        : line
     );
-    const { lines, totals } = recomputeQuoteLines(modified, activeQuote.discountPercent);
+    const { lines, totals } = recomputeQuoteLines(
+      modified,
+      activeQuote.discountPercent,
+      supplyType
+    );
     updateQuoteRecord({ ...activeQuote, lines, totals });
   };
 
   const handleRemoveLine = (lineId: string) => {
     if (!activeQuote) return;
+    const supplyType = activeQuote.supplyType || 'intra';
     const filtered = activeQuote.lines.filter((line) => line.id !== lineId);
-    const { lines, totals } = recomputeQuoteLines(filtered, activeQuote.discountPercent);
+    const { lines, totals } = recomputeQuoteLines(
+      filtered,
+      activeQuote.discountPercent,
+      supplyType
+    );
     updateQuoteRecord({ ...activeQuote, lines, totals });
   };
 
@@ -222,23 +271,50 @@ export default function App() {
     if (!activeQuote) return;
     const item = activeBusiness.items.find((i) => i.id === catalogItemId);
     if (!item) return;
-    const newLine = computeQuoteLine(item, 1, activeQuote.discountPercent, 'Added manually', 'high');
+    const supplyType = activeQuote.supplyType || 'intra';
+    const newLine = computeQuoteLine(
+      item,
+      1,
+      activeQuote.discountPercent,
+      'Added manually',
+      'high',
+      supplyType,
+      'Manually added by business owner'
+    );
     const { lines, totals } = recomputeQuoteLines(
       [...activeQuote.lines, newLine],
-      activeQuote.discountPercent
+      activeQuote.discountPercent,
+      supplyType
     );
     updateQuoteRecord({ ...activeQuote, lines, totals });
   };
 
   const handleUpdateDiscount = (discountPercent: number) => {
     if (!activeQuote) return;
+    const supplyType = activeQuote.supplyType || 'intra';
     const safePct = Math.min(100, Math.max(0, discountPercent));
-    const { lines, totals } = recomputeQuoteLines(activeQuote.lines, safePct);
+    const { lines, totals } = recomputeQuoteLines(activeQuote.lines, safePct, supplyType);
     updateQuoteRecord({ ...activeQuote, discountPercent: safePct, lines, totals });
+  };
+
+  const handleUpdateSupplyType = (supplyType: SupplyType) => {
+    if (!activeQuote) return;
+    const { lines, totals } = recomputeQuoteLines(
+      activeQuote.lines,
+      activeQuote.discountPercent,
+      supplyType
+    );
+    updateQuoteRecord({ ...activeQuote, supplyType, lines, totals });
   };
 
   const handleUpdateQuoteStatus = (quoteId: string, status: QuoteStatus) => {
     setSavedQuotes((prev) => prev.map((q) => (q.id === quoteId ? { ...q, status } : q)));
+  };
+
+  const handleUpdateManualBaseline = (quoteId: string, mins: number) => {
+    setSavedQuotes((prev) =>
+      prev.map((q) => (q.id === quoteId ? { ...q, manualBaselineMins: mins } : q))
+    );
   };
 
   const handleDeleteQuote = (quoteId: string) => {
@@ -263,7 +339,6 @@ export default function App() {
 
       {activeView === 'workspace' && (
         <main className="mx-auto max-w-[1440px] px-4 py-6 sm:px-6 lg:px-8">
-          {/* Mobile Rate Card Drawer Trigger */}
           <div className="no-print mb-4 flex items-center justify-between rounded-xl border border-slate-200 bg-white px-4 py-3 lg:hidden">
             <div className="min-w-0">
               <div className="truncate text-xs font-semibold text-slate-900">
@@ -283,7 +358,6 @@ export default function App() {
             </button>
           </div>
 
-          {/* Mobile Drawer Overlay */}
           {mobileDrawerOpen && (
             <div className="no-print fixed inset-0 z-40 flex lg:hidden">
               <div
@@ -319,7 +393,6 @@ export default function App() {
           )}
 
           <div className="grid grid-cols-1 gap-6 lg:grid-cols-12 lg:items-start">
-            {/* Left Sidebar: Business Rate Card (Desktop) */}
             <div className="no-print hidden lg:col-span-4 lg:block xl:col-span-3">
               <RateCardSidebar
                 presets={businesses}
@@ -329,7 +402,6 @@ export default function App() {
               />
             </div>
 
-            {/* Main Column: Inquiry Input + Live GST Quote Output */}
             <div className="flex flex-col gap-6 lg:col-span-8 xl:col-span-9">
               <InquiryInputCard
                 activeBusiness={activeBusiness}
@@ -354,6 +426,7 @@ export default function App() {
                 onRemoveLine={handleRemoveLine}
                 onAddCatalogItemToQuote={handleAddCatalogItemToQuote}
                 onUpdateDiscount={handleUpdateDiscount}
+                onUpdateSupplyType={handleUpdateSupplyType}
                 onOpenRateCard={() => setActiveView('ratecard')}
               />
             </div>
@@ -376,6 +449,7 @@ export default function App() {
           quotes={savedQuotes}
           onOpenQuote={handleOpenQuoteFromHistory}
           onUpdateStatus={handleUpdateQuoteStatus}
+          onUpdateManualBaseline={handleUpdateManualBaseline}
           onDeleteQuote={handleDeleteQuote}
           onGoToWorkspace={() => setActiveView('workspace')}
         />

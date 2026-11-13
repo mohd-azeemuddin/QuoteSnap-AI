@@ -5,6 +5,7 @@ import type {
   ComputedQuoteLine,
   QuoteTotals,
   SavedQuote,
+  SupplyType,
 } from '../types.ts';
 
 export function round2(value: number): number {
@@ -27,24 +28,112 @@ export function formatINRCompact(amount: number): string {
   return formatINR(safe, hasPaise);
 }
 
+const ONES = [
+  '',
+  'One',
+  'Two',
+  'Three',
+  'Four',
+  'Five',
+  'Six',
+  'Seven',
+  'Eight',
+  'Nine',
+  'Ten',
+  'Eleven',
+  'Twelve',
+  'Thirteen',
+  'Fourteen',
+  'Fifteen',
+  'Sixteen',
+  'Seventeen',
+  'Eighteen',
+  'Nineteen',
+];
+
+const TENS = [
+  '',
+  '',
+  'Twenty',
+  'Thirty',
+  'Forty',
+  'Fifty',
+  'Sixty',
+  'Seventy',
+  'Eighty',
+  'Ninety',
+];
+
+function twoDigitWords(num: number): string {
+  if (num < 20) return ONES[num];
+  const ten = Math.floor(num / 10);
+  const one = num % 10;
+  return `${TENS[ten]}${one ? ` ${ONES[one]}` : ''}`.trim();
+}
+
+function integerToIndianWords(n: number): string {
+  if (n === 0) return 'Zero';
+  const parts: string[] = [];
+  const crore = Math.floor(n / 10000000);
+  const lakh = Math.floor((n % 10000000) / 100000);
+  const thousand = Math.floor((n % 100000) / 1000);
+  const hundred = Math.floor((n % 1000) / 100);
+  const rest = n % 100;
+
+  if (crore > 0) parts.push(`${integerToIndianWords(crore)} Crore`);
+  if (lakh > 0) parts.push(`${twoDigitWords(lakh)} Lakh`);
+  if (thousand > 0) parts.push(`${twoDigitWords(thousand)} Thousand`);
+  if (hundred > 0) parts.push(`${ONES[hundred]} Hundred`);
+  if (rest > 0) {
+    parts.push(`${parts.length > 0 ? 'and ' : ''}${twoDigitWords(rest)}`);
+  }
+  return parts.join(' ').trim();
+}
+
+export function formatINRInWords(amount: number): string {
+  const safe = Math.max(0, Number.isFinite(amount) ? amount : 0);
+  const rupees = Math.floor(safe);
+  const paise = Math.round((safe - rupees) * 100);
+  const rupeeText = integerToIndianWords(rupees);
+  if (paise > 0) {
+    return `Rupees ${rupeeText} and ${twoDigitWords(paise)} Paise Only`;
+  }
+  return `Rupees ${rupeeText} Only`;
+}
+
 export function computeQuoteLine(
   item: CatalogItem,
   quantity: number,
   discountPercent: number,
   dimensionsNote: string,
   confidence: 'high' | 'medium' | 'low',
+  supplyType: SupplyType = 'intra',
+  reasoning = '',
   lineId?: string
 ): ComputedQuoteLine {
   const safeQty = Math.max(0, Number.isFinite(quantity) ? quantity : 0);
-  const safeDiscountPct = Math.min(100, Math.max(0, Number.isFinite(discountPercent) ? discountPercent : 0));
+  const safeDiscountPct = Math.min(
+    100,
+    Math.max(0, Number.isFinite(discountPercent) ? discountPercent : 0)
+  );
 
   const taxableAmount = round2(safeQty * item.unitPrice);
   const discountAmount = round2(taxableAmount * (safeDiscountPct / 100));
   const discountedTaxable = round2(taxableAmount - discountAmount);
-  const halfGstRate = item.gstPercent / 2 / 100;
-  const cgstAmount = round2(discountedTaxable * halfGstRate);
-  const sgstAmount = round2(discountedTaxable * halfGstRate);
-  const lineTotal = round2(discountedTaxable + cgstAmount + sgstAmount);
+
+  let cgstAmount = 0;
+  let sgstAmount = 0;
+  let igstAmount = 0;
+
+  if (supplyType === 'inter') {
+    igstAmount = round2((discountedTaxable * item.gstPercent) / 100);
+  } else {
+    const halfGstRate = item.gstPercent / 2 / 100;
+    cgstAmount = round2(discountedTaxable * halfGstRate);
+    sgstAmount = round2(discountedTaxable * halfGstRate);
+  }
+
+  const lineTotal = round2(discountedTaxable + cgstAmount + sgstAmount + igstAmount);
 
   return {
     id: lineId ?? `${item.id}-${Math.random().toString(36).slice(2, 7)}`,
@@ -57,30 +146,46 @@ export function computeQuoteLine(
     quantity: safeQty,
     dimensionsNote,
     confidence,
+    reasoning,
     taxableAmount,
     discountAmount,
     discountedTaxable,
     cgstAmount,
     sgstAmount,
+    igstAmount,
     lineTotal,
   };
 }
 
 export function recomputeQuoteLines(
   lines: ComputedQuoteLine[],
-  discountPercent: number
+  discountPercent: number,
+  supplyType: SupplyType = 'intra'
 ): { lines: ComputedQuoteLine[]; totals: QuoteTotals } {
-  const safeDiscountPct = Math.min(100, Math.max(0, Number.isFinite(discountPercent) ? discountPercent : 0));
+  const safeDiscountPct = Math.min(
+    100,
+    Math.max(0, Number.isFinite(discountPercent) ? discountPercent : 0)
+  );
 
   const updatedLines = lines.map((line) => {
     const safeQty = Math.max(0, Number.isFinite(line.quantity) ? line.quantity : 0);
     const taxableAmount = round2(safeQty * line.unitPrice);
     const discountAmount = round2(taxableAmount * (safeDiscountPct / 100));
     const discountedTaxable = round2(taxableAmount - discountAmount);
-    const halfGstRate = line.gstPercent / 2 / 100;
-    const cgstAmount = round2(discountedTaxable * halfGstRate);
-    const sgstAmount = round2(discountedTaxable * halfGstRate);
-    const lineTotal = round2(discountedTaxable + cgstAmount + sgstAmount);
+
+    let cgstAmount = 0;
+    let sgstAmount = 0;
+    let igstAmount = 0;
+
+    if (supplyType === 'inter') {
+      igstAmount = round2((discountedTaxable * line.gstPercent) / 100);
+    } else {
+      const halfGstRate = line.gstPercent / 2 / 100;
+      cgstAmount = round2(discountedTaxable * halfGstRate);
+      sgstAmount = round2(discountedTaxable * halfGstRate);
+    }
+
+    const lineTotal = round2(discountedTaxable + cgstAmount + sgstAmount + igstAmount);
 
     return {
       ...line,
@@ -90,6 +195,7 @@ export function recomputeQuoteLines(
       discountedTaxable,
       cgstAmount,
       sgstAmount,
+      igstAmount,
       lineTotal,
     };
   });
@@ -99,7 +205,10 @@ export function recomputeQuoteLines(
   const taxableSubtotal = round2(updatedLines.reduce((acc, l) => acc + l.discountedTaxable, 0));
   const totalCgst = round2(updatedLines.reduce((acc, l) => acc + l.cgstAmount, 0));
   const totalSgst = round2(updatedLines.reduce((acc, l) => acc + l.sgstAmount, 0));
-  const grandTotal = round2(taxableSubtotal + totalCgst + totalSgst);
+  const totalIgst = round2(updatedLines.reduce((acc, l) => acc + l.igstAmount, 0));
+  const rawTotal = round2(taxableSubtotal + totalCgst + totalSgst + totalIgst);
+  const grandTotal = Math.round(rawTotal);
+  const roundOff = round2(grandTotal - rawTotal);
 
   return {
     lines: updatedLines,
@@ -109,6 +218,9 @@ export function recomputeQuoteLines(
       taxableSubtotal,
       totalCgst,
       totalSgst,
+      totalIgst,
+      rawTotal,
+      roundOff,
       grandTotal,
     },
   };
@@ -123,7 +235,15 @@ export function buildQuoteFromExtraction(params: {
   processingTimeMs: number;
   existingQuoteCount: number;
 }): SavedQuote {
-  const { business, extraction, inquiryText, hasImage, hasAudio, processingTimeMs, existingQuoteCount } = params;
+  const {
+    business,
+    extraction,
+    inquiryText,
+    hasImage,
+    hasAudio,
+    processingTimeMs,
+    existingQuoteCount,
+  } = params;
   const catalogById = new Map(business.items.map((item) => [item.id, item]));
 
   const rawLines: ComputedQuoteLine[] = [];
@@ -141,12 +261,14 @@ export function buildQuoteFromExtraction(params: {
         extracted.quantity,
         0,
         extracted.dimensionsNote || '',
-        extracted.confidence || 'medium'
+        extracted.confidence || 'medium',
+        'intra',
+        extracted.reasoning || ''
       )
     );
   }
 
-  const { lines, totals } = recomputeQuoteLines(rawLines, 0);
+  const { lines, totals } = recomputeQuoteLines(rawLines, 0, 'intra');
 
   const now = new Date();
   const validDate = new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000);
@@ -170,8 +292,11 @@ export function buildQuoteFromExtraction(params: {
     customerName: extraction.customerName || 'Walk-in Customer',
     customerPhone: extraction.customerPhone || '',
     customerLocation: extraction.customerLocation || 'Bengaluru',
+    placeOfSupply: 'Karnataka (29)',
+    supplyType: 'intra',
     detectedLanguage: extraction.detectedLanguage || 'English / Hinglish',
     inquiryText,
+    attachmentTranscript: extraction.attachmentTranscript || '',
     hasImage,
     hasAudio,
     lines,
@@ -185,10 +310,44 @@ export function buildQuoteFromExtraction(params: {
     whatsappFollowUpHinglish: extraction.whatsappFollowUpHinglish || '',
     activeTone: 'english',
     processingTimeMs,
+    manualBaselineMins: 20,
   };
 }
 
-export function buildWhatsAppMessage(quote: SavedQuote): string {
+export function encodeShareableQuote(quote: SavedQuote): string {
+  // Compact payload omitting raw inquiry/transcript to keep share URLs clean and concise
+  const compact: SavedQuote = {
+    ...quote,
+    inquiryText: '',
+    attachmentTranscript: '',
+  };
+  const json = JSON.stringify(compact);
+  const bytes = new TextEncoder().encode(json);
+  let binary = '';
+  for (let i = 0; i < bytes.length; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+export function decodeShareableQuote(encoded: string): SavedQuote | null {
+  try {
+    const padded = encoded.replace(/-/g, '+').replace(/_/g, '/');
+    const binary = atob(padded);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) {
+      bytes[i] = binary.charCodeAt(i);
+    }
+    const json = new TextDecoder().decode(bytes);
+    const parsed = JSON.parse(json) as SavedQuote;
+    if (!parsed || !parsed.quoteNumber || !Array.isArray(parsed.lines)) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+export function buildWhatsAppMessage(quote: SavedQuote, shareUrl?: string): string {
   const followUp =
     quote.activeTone === 'hinglish' ? quote.whatsappFollowUpHinglish : quote.whatsappFollowUpEn;
 
@@ -204,11 +363,17 @@ export function buildWhatsAppMessage(quote: SavedQuote): string {
       ? `\nNote / Clarification Needed:\n- ${quote.missingInfoFlags.join('\n- ')}\n`
       : '';
 
+  const taxLine =
+    quote.supplyType === 'inter'
+      ? `IGST: ${formatINRCompact(quote.totals.totalIgst)}`
+      : `CGST: ${formatINRCompact(quote.totals.totalCgst)} | SGST: ${formatINRCompact(quote.totals.totalSgst)}`;
+
   return [
     followUp,
     '',
     `*${quote.businessSnapshot.businessName}*`,
     `Quote #: ${quote.quoteNumber} | GSTIN: ${quote.businessSnapshot.gstin}`,
+    `Place of Supply: ${quote.placeOfSupply}`,
     '',
     itemLines,
     '',
@@ -216,9 +381,10 @@ export function buildWhatsAppMessage(quote: SavedQuote): string {
       ? `Discount (${quote.discountPercent}%): -${formatINRCompact(quote.totals.discountAmount)}`
       : null,
     `Taxable Subtotal: ${formatINRCompact(quote.totals.taxableSubtotal)}`,
-    `CGST: ${formatINRCompact(quote.totals.totalCgst)} | SGST: ${formatINRCompact(quote.totals.totalSgst)}`,
-    `*Grand Total (Incl. GST): ${formatINRCompact(quote.totals.grandTotal)}*`,
+    taxLine,
+    `*Grand Total (Incl. GST): ${formatINR(quote.totals.grandTotal, false)}*`,
     flagsText,
+    shareUrl ? `View Online GST Quote: ${shareUrl}` : null,
     `Valid until: ${new Date(quote.validUntil).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}`,
   ]
     .filter((line) => line !== null)
@@ -253,8 +419,9 @@ export function parseRateCardCsv(csvText: string): CatalogItem[] {
   };
 
   const firstRow = splitCsvRow(lines[0]).map((c) => c.toLowerCase());
-  const hasHeader =
-    firstRow.some((cell) => cell.includes('name') || cell.includes('item') || cell.includes('price'));
+  const hasHeader = firstRow.some(
+    (cell) => cell.includes('name') || cell.includes('item') || cell.includes('price')
+  );
   const dataLines = hasHeader ? lines.slice(1) : lines;
 
   const parsed: CatalogItem[] = [];

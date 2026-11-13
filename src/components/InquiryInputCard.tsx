@@ -9,6 +9,7 @@ import {
   Square,
   Trash2,
   Upload,
+  Volume2,
   CheckCircle2,
 } from 'lucide-react';
 import sampleHandwrittenNoteUrl from '../assets/images/sample_handwritten_note_1794568290874.jpg';
@@ -17,7 +18,7 @@ import type { BusinessProfile } from '../types.ts';
 export interface MediaAttachment {
   name: string;
   mimeType: string;
-  data: string; // raw base64 without data: prefix
+  data: string;
   previewUrl: string;
 }
 
@@ -60,6 +61,16 @@ function blobToBase64(blob: Blob): Promise<string> {
   });
 }
 
+function base64ToBlobUrl(base64: string, mimeType: string): string {
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  const blob = new Blob([bytes], { type: mimeType });
+  return URL.createObjectURL(blob);
+}
+
 function normalizeAudioMimeType(rawMime: string, fileName?: string): string {
   const clean = rawMime.split(';')[0].trim().toLowerCase();
   if (clean && clean !== 'application/octet-stream') {
@@ -97,6 +108,7 @@ export function InquiryInputCard({
   const [recordingSeconds, setRecordingSeconds] = useState(0);
   const [mediaError, setMediaError] = useState<string | null>(null);
   const [isLoadingSampleNote, setIsLoadingSampleNote] = useState(false);
+  const [isLoadingSampleVoice, setIsLoadingSampleVoice] = useState(false);
 
   useEffect(() => {
     if (!isRecording) return;
@@ -171,6 +183,29 @@ export function InquiryInputCard({
     }
   };
 
+  const handleTrySampleVoice = async () => {
+    setMediaError(null);
+    setIsLoadingSampleVoice(true);
+    try {
+      const resp = await fetch(`/api/sample-voice/${activeBusiness.presetKey}`);
+      const payload = await resp.json();
+      if (!resp.ok) {
+        throw new Error(payload.error || 'Could not load sample voice note.');
+      }
+      const previewUrl = base64ToBlobUrl(payload.data, payload.mimeType);
+      onChangeAudio({
+        name: payload.fileName || 'sample-hinglish-voice-note.wav',
+        mimeType: payload.mimeType || 'audio/wav',
+        data: payload.data,
+        previewUrl,
+      });
+    } catch (err) {
+      setMediaError(err instanceof Error ? err.message : 'Unable to generate sample voice note.');
+    } finally {
+      setIsLoadingSampleVoice(false);
+    }
+  };
+
   const startRecording = async () => {
     setMediaError(null);
     if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
@@ -227,8 +262,8 @@ export function InquiryInputCard({
     } catch (err) {
       setMediaError(
         err instanceof Error
-          ? `Microphone access unavailable (${err.message}). You can upload an audio clip instead.`
-          : 'Microphone access denied. Upload an audio clip instead.'
+          ? `Microphone access unavailable (${err.message}). Try the Sample Voice Note or upload an audio clip.`
+          : 'Microphone access denied. Try the Sample Voice Note or upload an audio clip.'
       );
     }
   };
@@ -250,31 +285,47 @@ export function InquiryInputCard({
 
   return (
     <section className="no-print rounded-xl border border-slate-200 bg-white p-5 sm:p-6">
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h2 className="text-base font-semibold text-slate-900">
             02. Messy Customer Inquiry Input
           </h2>
           <p className="mt-0.5 text-xs text-slate-500">
-            Paste WhatsApp messages, upload handwritten site notes, or record a voice note — simultaneously or individually.
+            Paste WhatsApp messages, upload handwritten site notes, or attach a voice note — simultaneously or individually.
           </p>
         </div>
 
-        <button
-          type="button"
-          onClick={handleTrySampleNote}
-          disabled={isLoadingSampleNote || isGenerating}
-          className="inline-flex items-center gap-1.5 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs font-semibold text-indigo-800 hover:bg-indigo-100 whitespace-nowrap shrink-0 transition-colors disabled:opacity-50"
-        >
-          <Camera className="h-3.5 w-3.5" aria-hidden="true" />
-          <span>{isLoadingSampleNote ? 'Loading Note...' : 'Try Sample Handwritten Note'}</span>
-        </button>
+        <div className="flex flex-wrap items-center gap-2 shrink-0">
+          <button
+            type="button"
+            onClick={handleTrySampleNote}
+            disabled={isLoadingSampleNote || isGenerating}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-xs font-semibold text-indigo-800 hover:bg-indigo-100 whitespace-nowrap transition-colors disabled:opacity-50"
+          >
+            <Camera className="h-3.5 w-3.5" aria-hidden="true" />
+            <span>{isLoadingSampleNote ? 'Loading Note...' : 'Try Sample Handwritten Note'}</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={handleTrySampleVoice}
+            disabled={isLoadingSampleVoice || isGenerating}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-800 hover:bg-emerald-100 whitespace-nowrap transition-colors disabled:opacity-50"
+          >
+            {isLoadingSampleVoice ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+            ) : (
+              <Volume2 className="h-3.5 w-3.5" aria-hidden="true" />
+            )}
+            <span>{isLoadingSampleVoice ? 'Generating Voice...' : 'Try Sample Voice Note'}</span>
+          </button>
+        </div>
       </div>
 
       {/* Realistic One-Click Preset Test Buttons */}
       <div className="mt-4">
         <div className="mb-1.5 text-[11px] font-medium text-slate-500">
-          One-click {activeBusiness.presetName} test inquiries:
+          One-click {activeBusiness.presetName} WhatsApp inquiries:
         </div>
         <div className="flex flex-wrap gap-2">
           {activeBusiness.sampleInquiries.map((sample) => (
@@ -341,7 +392,7 @@ export function InquiryInputCard({
                 <div className="truncate text-xs font-semibold text-slate-900">
                   {imageAttachment.name}
                 </div>
-                <div className="mt-0.5 text-[11px] text-emerald-700 font-medium">
+                <div className="mt-0.5 text-[11px] font-medium text-emerald-700">
                   Image ready for Gemini Vision
                 </div>
                 <button
@@ -364,9 +415,7 @@ export function InquiryInputCard({
                   <div className="text-xs font-semibold text-slate-800">
                     Handwritten Note / Site Photo
                   </div>
-                  <div className="text-[11px] text-slate-500">
-                    Drop photo or upload JPG/PNG
-                  </div>
+                  <div className="text-[11px] text-slate-500">Drop photo or upload JPG/PNG</div>
                 </div>
               </div>
               <button
@@ -434,7 +483,7 @@ export function InquiryInputCard({
                       : 'Voice Note / Audio Clip'}
                   </div>
                   <div className="text-[11px] text-slate-500">
-                    {isRecording ? 'Speak Hinglish or English clearly' : 'Record mic or upload audio'}
+                    {isRecording ? 'Speak Hinglish or English clearly' : 'Record mic or upload clip'}
                   </div>
                 </div>
               </div>

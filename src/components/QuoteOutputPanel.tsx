@@ -3,24 +3,41 @@ import {
   AlertTriangle,
   Check,
   CheckCircle2,
+  ChevronDown,
+  ChevronUp,
   Copy,
   FileText,
+  Link2,
   MessageSquare,
   Plus,
   Printer,
+  Ruler,
   Trash2,
 } from 'lucide-react';
-import type { BusinessProfile, FollowUpTone, QuoteStatus, SavedQuote } from '../types.ts';
-import { buildWhatsAppMessage, formatINR, formatINRCompact } from '../utils/quoteMath.ts';
+import type {
+  BusinessProfile,
+  FollowUpTone,
+  QuoteStatus,
+  SavedQuote,
+  SupplyType,
+} from '../types.ts';
+import {
+  buildWhatsAppMessage,
+  encodeShareableQuote,
+  formatINR,
+  formatINRCompact,
+  formatINRInWords,
+} from '../utils/quoteMath.ts';
 
 interface QuoteOutputPanelProps {
   quote: SavedQuote | null;
   activeBusiness: BusinessProfile;
   onUpdateQuote: (updated: SavedQuote) => void;
-  onUpdateLineQuantity: (lineId: string, quantity: number) => void;
+  onUpdateLineQuantity: (lineId: string, quantity: number, dimensionsNote?: string) => void;
   onRemoveLine: (lineId: string) => void;
   onAddCatalogItemToQuote: (catalogItemId: string) => void;
   onUpdateDiscount: (discountPercent: number) => void;
+  onUpdateSupplyType: (supplyType: SupplyType) => void;
   onOpenRateCard: () => void;
 }
 
@@ -32,10 +49,16 @@ export function QuoteOutputPanel({
   onRemoveLine,
   onAddCatalogItemToQuote,
   onUpdateDiscount,
+  onUpdateSupplyType,
   onOpenRateCard,
 }: QuoteOutputPanelProps) {
-  const [copied, setCopied] = useState(false);
+  const [copiedSummary, setCopiedSummary] = useState(false);
+  const [copiedLink, setCopiedLink] = useState(false);
   const [selectedAddItemId, setSelectedAddItemId] = useState<string>('');
+  const [showAgentDetails, setShowAgentDetails] = useState(false);
+  const [dimensionLineId, setDimensionLineId] = useState<string | null>(null);
+  const [dimWidth, setDimWidth] = useState('');
+  const [dimHeight, setDimHeight] = useState('');
 
   if (!quote) {
     return (
@@ -47,13 +70,18 @@ export function QuoteOutputPanel({
           Live GST Quote Preview Will Appear Here
         </h3>
         <p className="mx-auto mt-1 max-w-md text-xs text-slate-500">
-          Click a one-click sample inquiry above, try the sample handwritten note, or record a voice note and click Generate GST Quote.
+          Click a one-click sample inquiry above, try the sample handwritten note or sample voice note, and click Generate GST Quote.
         </p>
       </section>
     );
   }
 
-  const fullWhatsAppText = buildWhatsAppMessage(quote);
+  const shareUrl =
+    typeof window !== 'undefined'
+      ? `${window.location.origin}/?quote=${encodeShareableQuote(quote)}`
+      : '';
+
+  const fullWhatsAppText = buildWhatsAppMessage(quote, shareUrl);
   const cleanedPhone = quote.customerPhone.replace(/[^0-9]/g, '');
   const waPhonePrefix =
     cleanedPhone.length === 10
@@ -66,20 +94,38 @@ export function QuoteOutputPanel({
   const handleCopySummary = async () => {
     try {
       await navigator.clipboard.writeText(fullWhatsAppText);
-      setCopied(true);
-      window.setTimeout(() => setCopied(false), 2000);
+      setCopiedSummary(true);
+      window.setTimeout(() => setCopiedSummary(false), 2000);
     } catch {
-      // Fallback if clipboard API restricted
-      setCopied(false);
+      setCopiedSummary(false);
     }
   };
 
-  const handlePrint = () => {
-    window.print();
+  const handleCopyShareLink = async () => {
+    if (!shareUrl) return;
+    try {
+      await navigator.clipboard.writeText(shareUrl);
+      setCopiedLink(true);
+      window.setTimeout(() => setCopiedLink(false), 2000);
+    } catch {
+      setCopiedLink(false);
+    }
+  };
+
+  const handleApplyDimensions = (lineId: string) => {
+    const w = parseFloat(dimWidth);
+    const h = parseFloat(dimHeight);
+    if (!Number.isFinite(w) || !Number.isFinite(h) || w <= 0 || h <= 0) return;
+    const area = Math.round(w * h * 100) / 100;
+    onUpdateLineQuantity(lineId, area, `${w} ft × ${h} ft = ${area} sq ft (Confirmed)`);
+    setDimensionLineId(null);
+    setDimWidth('');
+    setDimHeight('');
   };
 
   const confidencePct = Math.round((quote.confidenceScore || 0.85) * 100);
   const secondsTaken = (quote.processingTimeMs / 1000).toFixed(1);
+  const supplyType = quote.supplyType || 'intra';
 
   return (
     <div className="flex flex-col gap-5">
@@ -111,8 +157,20 @@ export function QuoteOutputPanel({
             </span>
           </div>
 
-          <div className="flex items-center gap-1.5">
-            <span className="text-xs font-medium text-slate-500">Status:</span>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setShowAgentDetails((prev) => !prev)}
+              className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-100"
+            >
+              <span>{showAgentDetails ? 'Hide Extraction Proof' : 'View Extraction Proof'}</span>
+              {showAgentDetails ? (
+                <ChevronUp className="h-3.5 w-3.5" aria-hidden="true" />
+              ) : (
+                <ChevronDown className="h-3.5 w-3.5" aria-hidden="true" />
+              )}
+            </button>
+
             <div className="inline-flex rounded-lg border border-slate-200 bg-slate-100 p-0.5">
               {(['Draft', 'Sent', 'Won'] as QuoteStatus[]).map((statusOption) => (
                 <button
@@ -134,12 +192,49 @@ export function QuoteOutputPanel({
           </div>
         </div>
 
-        {/* Missing Info / Clarification Needed Alerts (Amber, all-around hairline border) */}
+        {/* Collapsible Agent Transcript / Vision OCR & Reasoning Drawer */}
+        {showAgentDetails && (
+          <div className="mt-4 space-y-3 rounded-lg border border-slate-200 bg-slate-50 p-3.5 text-xs">
+            {quote.overallSummary && (
+              <div>
+                <div className="font-semibold text-slate-800">Agent Summary</div>
+                <p className="mt-0.5 text-slate-600">{quote.overallSummary}</p>
+              </div>
+            )}
+            {quote.attachmentTranscript && (
+              <div>
+                <div className="font-semibold text-slate-800">
+                  Audio Transcript / Handwritten OCR Extracted
+                </div>
+                <p className="mt-1 rounded border border-slate-200 bg-white p-2.5 font-mono text-[11px] leading-relaxed text-slate-700">
+                  {quote.attachmentTranscript}
+                </p>
+              </div>
+            )}
+            {quote.lines.length > 0 && (
+              <div>
+                <div className="font-semibold text-slate-800">Per-Item Catalog Matching Proof</div>
+                <ul className="mt-1 space-y-1 text-slate-600">
+                  {quote.lines.map((line) => (
+                    <li key={line.id}>
+                      <span className="font-medium text-slate-900">{line.name}</span>:{' '}
+                      {line.reasoning || line.dimensionsNote || 'Matched via catalog keywords.'}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Missing Info / Clarification Needed Alerts */}
         {quote.missingInfoFlags.length > 0 && (
           <div className="mt-4 rounded-lg border border-amber-300 bg-amber-50 p-3.5">
             <div className="flex items-center gap-2 text-xs font-semibold text-amber-900">
               <AlertTriangle className="h-4 w-4 shrink-0 text-amber-600" aria-hidden="true" />
-              <span>Missing Info / Clarification Needed Before Sending ({quote.missingInfoFlags.length})</span>
+              <span>
+                Missing Info / Clarification Needed Before Sending ({quote.missingInfoFlags.length})
+              </span>
             </div>
             <ul className="mt-2 list-disc space-y-1 pl-5 text-xs text-amber-900">
               {quote.missingInfoFlags.map((flag, i) => (
@@ -215,8 +310,8 @@ export function QuoteOutputPanel({
           </div>
         </div>
 
-        {/* Customer / Site Details */}
-        <div className="mt-5 grid grid-cols-1 gap-4 rounded-lg border border-slate-100 bg-slate-50/70 p-4 sm:grid-cols-3">
+        {/* Customer & Supply Details */}
+        <div className="mt-5 grid grid-cols-1 gap-4 rounded-lg border border-slate-100 bg-slate-50/70 p-4 sm:grid-cols-2 lg:grid-cols-4">
           <div>
             <div className="text-[11px] font-medium text-slate-500">Prepared For</div>
             <input
@@ -224,7 +319,7 @@ export function QuoteOutputPanel({
               aria-label="Customer Name"
               value={quote.customerName}
               onChange={(e) => onUpdateQuote({ ...quote, customerName: e.target.value })}
-              className="mt-0.5 w-full bg-transparent text-sm font-semibold text-slate-900 focus:bg-white focus:outline-1 focus:outline-indigo-500 print:border-none"
+              className="mt-0.5 w-full bg-transparent text-sm font-semibold text-slate-900 focus:bg-white focus:outline-1 focus:outline-indigo-500"
             />
           </div>
           <div>
@@ -248,6 +343,27 @@ export function QuoteOutputPanel({
               className="mt-0.5 w-full bg-transparent font-mono text-sm text-slate-800 focus:bg-white focus:outline-1 focus:outline-indigo-500"
             />
           </div>
+          <div>
+            <div className="text-[11px] font-medium text-slate-500">Place of Supply & GST Mode</div>
+            <div className="mt-0.5 flex items-center gap-1.5">
+              <input
+                type="text"
+                aria-label="Place of Supply"
+                value={quote.placeOfSupply || 'Karnataka (29)'}
+                onChange={(e) => onUpdateQuote({ ...quote, placeOfSupply: e.target.value })}
+                className="w-full min-w-0 bg-transparent text-xs font-medium text-slate-800 focus:bg-white focus:outline-1 focus:outline-indigo-500"
+              />
+              <select
+                aria-label="GST Supply Type"
+                value={supplyType}
+                onChange={(e) => onUpdateSupplyType(e.target.value as SupplyType)}
+                className="no-print shrink-0 rounded border border-slate-300 bg-white px-1.5 py-0.5 text-[11px] font-medium text-slate-700"
+              >
+                <option value="intra">CGST+SGST</option>
+                <option value="inter">IGST</option>
+              </select>
+            </div>
+          </div>
         </div>
 
         {/* Itemized Table */}
@@ -256,7 +372,8 @@ export function QuoteOutputPanel({
             <thead>
               <tr className="border-b border-slate-300 text-slate-600">
                 <th className="py-2.5 pr-2 font-semibold">#</th>
-                <th className="py-2.5 pr-4 font-semibold">Description & Specifications</th>
+                <th className="py-2.5 pr-3 font-semibold">Description & Specifications</th>
+                <th className="py-2.5 px-2 font-semibold">HSN/SAC</th>
                 <th className="py-2.5 px-2 text-right font-semibold">Qty</th>
                 <th className="py-2.5 px-2 font-semibold">Unit</th>
                 <th className="py-2.5 px-2 text-right font-semibold">Rate (₹)</th>
@@ -266,61 +383,121 @@ export function QuoteOutputPanel({
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200">
-              {quote.lines.map((line, index) => (
-                <tr key={line.id}>
-                  <td className="py-3 pr-2 align-top font-mono text-slate-500 tabular-nums">
-                    {index + 1}
-                  </td>
-                  <td className="py-3 pr-4 align-top">
-                    <div className="font-semibold text-slate-900">{line.name}</div>
-                    {line.dimensionsNote && (
-                      <div className="mt-0.5 text-[11px] text-slate-500">
-                        {line.dimensionsNote}
-                        {line.hsnSac ? ` · HSN/SAC ${line.hsnSac}` : ''}
+              {quote.lines.map((line, index) => {
+                const isSqFt = line.unit.toLowerCase().includes('sq');
+                const isDimOpen = dimensionLineId === line.id;
+                return (
+                  <tr key={line.id}>
+                    <td className="py-3 pr-2 align-top font-mono text-slate-500 tabular-nums">
+                      {index + 1}
+                    </td>
+                    <td className="py-3 pr-3 align-top">
+                      <div className="font-semibold text-slate-900">{line.name}</div>
+                      {line.dimensionsNote && (
+                        <div className="mt-0.5 text-[11px] text-slate-500">
+                          {line.dimensionsNote}
+                        </div>
+                      )}
+                      {isDimOpen && (
+                        <div className="no-print mt-2 flex flex-wrap items-center gap-1.5 rounded-md border border-indigo-200 bg-indigo-50/70 p-2">
+                          <input
+                            type="number"
+                            step="any"
+                            min="0"
+                            placeholder="Width (ft)"
+                            value={dimWidth}
+                            onChange={(e) => setDimWidth(e.target.value)}
+                            className="w-20 rounded border border-slate-300 bg-white px-2 py-1 font-mono text-[11px]"
+                          />
+                          <span className="text-slate-500">×</span>
+                          <input
+                            type="number"
+                            step="any"
+                            min="0"
+                            placeholder="Height (ft)"
+                            value={dimHeight}
+                            onChange={(e) => setDimHeight(e.target.value)}
+                            className="w-20 rounded border border-slate-300 bg-white px-2 py-1 font-mono text-[11px]"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => handleApplyDimensions(line.id)}
+                            className="rounded bg-indigo-700 px-2.5 py-1 text-[11px] font-semibold text-white hover:bg-indigo-800"
+                          >
+                            Apply
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setDimensionLineId(null)}
+                            className="rounded px-2 py-1 text-[11px] text-slate-600 hover:bg-slate-200"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      )}
+                    </td>
+                    <td className="py-3 px-2 align-top font-mono text-[11px] text-slate-500 tabular-nums">
+                      {line.hsnSac || '—'}
+                    </td>
+                    <td className="py-3 px-2 align-top text-right font-mono tabular-nums">
+                      <div className="inline-flex items-center justify-end gap-1">
+                        {isSqFt && (
+                          <button
+                            type="button"
+                            title="Calculate Width × Height"
+                            onClick={() => {
+                              setDimensionLineId(isDimOpen ? null : line.id);
+                              setDimWidth('');
+                              setDimHeight('');
+                            }}
+                            className="no-print rounded border border-slate-200 bg-slate-50 p-1 text-slate-600 hover:border-indigo-300 hover:text-indigo-700"
+                            aria-label={`Set W x H dimensions for ${line.name}`}
+                          >
+                            <Ruler className="h-3 w-3" />
+                          </button>
+                        )}
+                        <input
+                          type="number"
+                          min="0"
+                          step="any"
+                          aria-label={`Quantity for ${line.name}`}
+                          value={line.quantity}
+                          onChange={(e) =>
+                            onUpdateLineQuantity(line.id, parseFloat(e.target.value) || 0)
+                          }
+                          className="no-print w-20 rounded border border-slate-300 bg-white px-2 py-1 text-right font-mono text-xs font-semibold text-slate-900 tabular-nums focus:border-indigo-600 focus:outline-none"
+                        />
                       </div>
-                    )}
-                  </td>
-                  <td className="py-3 px-2 align-top text-right font-mono tabular-nums">
-                    <input
-                      type="number"
-                      min="0"
-                      step="any"
-                      aria-label={`Quantity for ${line.name}`}
-                      value={line.quantity}
-                      onChange={(e) =>
-                        onUpdateLineQuantity(line.id, parseFloat(e.target.value) || 0)
-                      }
-                      className="no-print w-20 rounded border border-slate-300 bg-white px-2 py-1 text-right font-mono text-xs font-semibold text-slate-900 tabular-nums focus:border-indigo-600 focus:outline-none"
-                    />
-                    <span className="hidden print:inline font-mono font-semibold text-slate-900">
-                      {line.quantity}
-                    </span>
-                  </td>
-                  <td className="py-3 px-2 align-top text-slate-600">{line.unit}</td>
-                  <td className="py-3 px-2 align-top text-right font-mono text-slate-800 tabular-nums">
-                    {formatINRCompact(line.unitPrice)}
-                  </td>
-                  <td className="py-3 px-2 align-top text-right font-mono text-slate-700 tabular-nums">
-                    {line.gstPercent}%
-                  </td>
-                  <td className="py-3 pl-2 align-top text-right font-mono font-semibold text-slate-900 tabular-nums">
-                    {formatINR(line.lineTotal)}
-                  </td>
-                  <td className="no-print py-3 pl-2 align-top text-right">
-                    <button
-                      type="button"
-                      onClick={() => onRemoveLine(line.id)}
-                      className="rounded p-1 text-slate-400 hover:bg-red-50 hover:text-red-600"
-                      aria-label={`Remove ${line.name}`}
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </button>
-                  </td>
-                </tr>
-              ))}
+                      <span className="hidden print:inline font-mono font-semibold text-slate-900">
+                        {line.quantity}
+                      </span>
+                    </td>
+                    <td className="py-3 px-2 align-top text-slate-600">{line.unit}</td>
+                    <td className="py-3 px-2 align-top text-right font-mono text-slate-800 tabular-nums">
+                      {formatINRCompact(line.unitPrice)}
+                    </td>
+                    <td className="py-3 px-2 align-top text-right font-mono text-slate-700 tabular-nums">
+                      {line.gstPercent}%
+                    </td>
+                    <td className="py-3 pl-2 align-top text-right font-mono font-semibold text-slate-900 tabular-nums">
+                      {formatINR(line.lineTotal)}
+                    </td>
+                    <td className="no-print py-3 pl-2 align-top text-right">
+                      <button
+                        type="button"
+                        onClick={() => onRemoveLine(line.id)}
+                        className="rounded p-1 text-slate-400 hover:bg-red-50 hover:text-red-600"
+                        aria-label={`Remove ${line.name}`}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
               {quote.lines.length === 0 && (
                 <tr>
-                  <td colSpan={8} className="py-6 text-center text-xs text-slate-500">
+                  <td colSpan={9} className="py-6 text-center text-xs text-slate-500">
                     No matched catalog items. Use the selector below to add items from your Rate Card.
                   </td>
                 </tr>
@@ -359,17 +536,30 @@ export function QuoteOutputPanel({
           </button>
         </div>
 
-        {/* Totals & CGST/SGST Split */}
+        {/* Totals, Amount in Words & Tax Split */}
         <div className="mt-6 flex flex-col justify-between gap-6 border-t border-slate-200 pt-5 sm:flex-row">
-          <div className="max-w-sm text-[11px] leading-relaxed text-slate-500">
-            <div className="font-semibold text-slate-700">Terms & Tax Notes</div>
-            <p className="mt-1">
-              1. Prices are quoted in Indian Rupees (INR) based on the active business rate card.
-              <br />
-              2. Final billing will follow actual on-site measurements / confirmed headcount.
-              <br />
-              3. Intra-state supply: GST split equally into CGST & SGST.
-            </p>
+          <div className="max-w-md space-y-3 text-[11px] leading-relaxed text-slate-500">
+            <div className="rounded-md border border-slate-200 bg-slate-50/70 px-3 py-2 text-slate-800">
+              <div className="text-[10px] font-semibold tracking-wider text-slate-500 uppercase">
+                Total Amount Chargeable (In Words)
+              </div>
+              <div className="mt-0.5 text-xs font-semibold text-slate-900">
+                {formatINRInWords(quote.totals.grandTotal)}
+              </div>
+            </div>
+            <div>
+              <div className="font-semibold text-slate-700">Terms & Tax Notes</div>
+              <p className="mt-1">
+                1. Prices are quoted in Indian Rupees (INR) based on the active business rate card.
+                <br />
+                2. Final billing will follow actual on-site measurements / confirmed headcount.
+                <br />
+                3.{' '}
+                {supplyType === 'inter'
+                  ? 'Inter-state supply: IGST applied as per Place of Supply.'
+                  : 'Intra-state supply: GST split equally into CGST & SGST.'}
+              </p>
+            </div>
           </div>
 
           <div className="w-full sm:w-80 space-y-2 text-xs">
@@ -381,9 +571,7 @@ export function QuoteOutputPanel({
             </div>
 
             <div className="no-print flex items-center justify-between text-slate-600">
-              <label htmlFor="quote-discount-input" className="flex items-center gap-1.5">
-                <span>Discount (%)</span>
-              </label>
+              <label htmlFor="quote-discount-input">Discount (%)</label>
               <div className="flex items-center gap-2">
                 <input
                   id="quote-discount-input"
@@ -416,14 +604,41 @@ export function QuoteOutputPanel({
                 {formatINR(quote.totals.taxableSubtotal)}
               </span>
             </div>
-            <div className="flex items-center justify-between text-slate-600">
-              <span>CGST</span>
-              <span className="font-mono tabular-nums">{formatINR(quote.totals.totalCgst)}</span>
-            </div>
-            <div className="flex items-center justify-between text-slate-600">
-              <span>SGST</span>
-              <span className="font-mono tabular-nums">{formatINR(quote.totals.totalSgst)}</span>
-            </div>
+
+            {supplyType === 'inter' ? (
+              <div className="flex items-center justify-between text-slate-600">
+                <span>IGST</span>
+                <span className="font-mono tabular-nums">
+                  {formatINR(quote.totals.totalIgst || 0)}
+                </span>
+              </div>
+            ) : (
+              <>
+                <div className="flex items-center justify-between text-slate-600">
+                  <span>CGST</span>
+                  <span className="font-mono tabular-nums">
+                    {formatINR(quote.totals.totalCgst)}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between text-slate-600">
+                  <span>SGST</span>
+                  <span className="font-mono tabular-nums">
+                    {formatINR(quote.totals.totalSgst)}
+                  </span>
+                </div>
+              </>
+            )}
+
+            {Math.abs(quote.totals.roundOff || 0) > 0 && (
+              <div className="flex items-center justify-between text-slate-500">
+                <span>Round Off</span>
+                <span className="font-mono tabular-nums">
+                  {quote.totals.roundOff > 0 ? '+' : ''}
+                  {quote.totals.roundOff.toFixed(2)}
+                </span>
+              </div>
+            )}
+
             <div className="flex items-center justify-between border-t-2 border-slate-900 pt-2.5 text-sm font-bold text-slate-900">
               <span>Grand Total (Incl. GST)</span>
               <span className="font-mono text-base tabular-nums text-indigo-800">
@@ -434,7 +649,7 @@ export function QuoteOutputPanel({
         </div>
       </section>
 
-      {/* Agent Action Panel: Print PDF + WhatsApp Follow-Up (No Print) */}
+      {/* Agent Action Panel: Print PDF + Shareable Link + WhatsApp Follow-Up (No Print) */}
       <section className="no-print rounded-xl border border-slate-200 bg-white p-5 sm:p-6">
         <div className="flex flex-col gap-3 border-b border-slate-100 pb-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
@@ -442,7 +657,7 @@ export function QuoteOutputPanel({
               Customer Follow-Up & Export Actions
             </h3>
             <p className="mt-0.5 text-xs text-slate-500">
-              Review the AI-drafted reply, switch between English and Hinglish, and send directly on WhatsApp.
+              Review the AI-drafted reply, switch between English and Hinglish, copy the online quote link, or send directly on WhatsApp.
             </p>
           </div>
 
@@ -469,7 +684,7 @@ export function QuoteOutputPanel({
             htmlFor="whatsapp-followup-textarea"
             className="block text-xs font-medium text-slate-700"
           >
-            AI-Drafted Opening Message (combined automatically with itemized ₹ GST summary)
+            AI-Drafted Opening Message (combined automatically with itemized ₹ GST summary & share link)
           </label>
           <textarea
             id="whatsapp-followup-textarea"
@@ -490,11 +705,11 @@ export function QuoteOutputPanel({
           />
         </div>
 
-        <div className="mt-4 flex flex-wrap items-center justify-end gap-3">
+        <div className="mt-4 flex flex-wrap items-center justify-end gap-2.5">
           <button
             type="button"
-            onClick={handlePrint}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-4 py-2 text-xs font-semibold text-slate-800 hover:bg-slate-50 whitespace-nowrap"
+            onClick={() => window.print()}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-xs font-semibold text-slate-800 hover:bg-slate-50 whitespace-nowrap"
           >
             <Printer className="h-3.5 w-3.5" aria-hidden="true" />
             <span>Download / Print Clean PDF</span>
@@ -502,10 +717,28 @@ export function QuoteOutputPanel({
 
           <button
             type="button"
-            onClick={handleCopySummary}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-4 py-2 text-xs font-semibold text-slate-800 hover:bg-slate-50 whitespace-nowrap"
+            onClick={handleCopyShareLink}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-xs font-semibold text-slate-800 hover:bg-slate-50 whitespace-nowrap"
           >
-            {copied ? (
+            {copiedLink ? (
+              <>
+                <Check className="h-3.5 w-3.5 text-emerald-600" aria-hidden="true" />
+                <span>Quote Link Copied</span>
+              </>
+            ) : (
+              <>
+                <Link2 className="h-3.5 w-3.5" aria-hidden="true" />
+                <span>Copy Customer Quote Link</span>
+              </>
+            )}
+          </button>
+
+          <button
+            type="button"
+            onClick={handleCopySummary}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-xs font-semibold text-slate-800 hover:bg-slate-50 whitespace-nowrap"
+          >
+            {copiedSummary ? (
               <>
                 <Check className="h-3.5 w-3.5 text-emerald-600" aria-hidden="true" />
                 <span>Copied Summary</span>
@@ -513,7 +746,7 @@ export function QuoteOutputPanel({
             ) : (
               <>
                 <Copy className="h-3.5 w-3.5" aria-hidden="true" />
-                <span>Copy Customer Summary</span>
+                <span>Copy Summary</span>
               </>
             )}
           </button>

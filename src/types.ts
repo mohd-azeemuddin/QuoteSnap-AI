@@ -2,6 +2,8 @@ export type QuoteStatus = 'Draft' | 'Sent' | 'Won';
 
 export type FollowUpTone = 'english' | 'hinglish';
 
+export type SupplyType = 'intra' | 'inter';
+
 export interface CatalogItem {
   id: string;
   name: string;
@@ -47,6 +49,7 @@ export interface AgentExtractionResult {
   detectedLanguage: string;
   confidenceScore: number;
   overallSummary: string;
+  attachmentTranscript: string;
   lineItems: ExtractedLineItem[];
   missingInfoFlags: string[];
   unmatchedItems: string[];
@@ -65,11 +68,13 @@ export interface ComputedQuoteLine {
   quantity: number;
   dimensionsNote: string;
   confidence: 'high' | 'medium' | 'low';
+  reasoning?: string;
   taxableAmount: number;
   discountAmount: number;
   discountedTaxable: number;
   cgstAmount: number;
   sgstAmount: number;
+  igstAmount: number;
   lineTotal: number;
 }
 
@@ -79,6 +84,9 @@ export interface QuoteTotals {
   taxableSubtotal: number;
   totalCgst: number;
   totalSgst: number;
+  totalIgst: number;
+  rawTotal: number;
+  roundOff: number;
   grandTotal: number;
 }
 
@@ -100,8 +108,11 @@ export interface SavedQuote {
   customerName: string;
   customerPhone: string;
   customerLocation: string;
+  placeOfSupply: string;
+  supplyType: SupplyType;
   detectedLanguage: string;
   inquiryText: string;
+  attachmentTranscript: string;
   hasImage: boolean;
   hasAudio: boolean;
   lines: ComputedQuoteLine[];
@@ -115,4 +126,5 @@ export interface SavedQuote {
   whatsappFollowUpHinglish: string;
   activeTone: FollowUpTone;
   processingTimeMs: number;
+  manualBaselineMins?: number;
 }
