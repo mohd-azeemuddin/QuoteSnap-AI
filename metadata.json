@@ -1,0 +1,6 @@
+{
+  "name": "QuoteSnap AI",
+  "description": "Autonomous Voice, Photo, and WhatsApp-to-GST Quote Agent built for Indian small businesses.",
+  "requestFramePermissions": ["microphone"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
