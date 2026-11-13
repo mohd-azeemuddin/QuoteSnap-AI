@@ -11,7 +11,13 @@ import {
   X,
 } from 'lucide-react';
 import type { BusinessProfile, CatalogItem } from '../types.ts';
-import { exportRateCardCsv, formatINRCompact, parseRateCardCsv } from '../utils/quoteMath.ts';
+import {
+  exportRateCardCsv,
+  formatINRCompact,
+  getSampleRateCardCsv,
+  isValidGSTIN,
+  parseRateCardCsv,
+} from '../utils/quoteMath.ts';
 
 interface RateCardSidebarProps {
   presets: BusinessProfile[];
@@ -241,6 +247,19 @@ export function RateCardManager({
     URL.revokeObjectURL(url);
   };
 
+  const handleSampleCsvDownload = () => {
+    const csv = getSampleRateCardCsv();
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'quotesnap-sample-rate-card.csv';
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const gstinValid = !activeBusiness.gstin.trim() || isValidGSTIN(activeBusiness.gstin);
+
   return (
     <div className="mx-auto max-w-[1440px] px-4 py-6 sm:px-6 lg:px-8">
       {/* Header & Preset Selector */}
@@ -300,12 +319,24 @@ export function RateCardManager({
             />
           </label>
           <label className="block">
-            <span className="text-xs font-medium text-slate-700">GSTIN</span>
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-medium text-slate-700">GSTIN</span>
+              {!gstinValid && (
+                <span className="text-[11px] font-medium text-amber-700">
+                  15-char format expected
+                </span>
+              )}
+            </div>
             <input
               type="text"
+              maxLength={15}
               value={activeBusiness.gstin}
               onChange={(e) => handleFieldChange('gstin', e.target.value.toUpperCase())}
-              className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 font-mono text-sm text-slate-900 uppercase focus:border-indigo-600 focus:outline-none"
+              className={`mt-1 w-full rounded-lg border px-3 py-2 font-mono text-sm text-slate-900 uppercase focus:outline-none ${
+                gstinValid
+                  ? 'border-slate-300 focus:border-indigo-600'
+                  : 'border-amber-400 bg-amber-50/40 focus:border-amber-600'
+              }`}
             />
           </label>
           <label className="block">
@@ -324,6 +355,29 @@ export function RateCardManager({
               value={activeBusiness.address}
               onChange={(e) => handleFieldChange('address', e.target.value)}
               className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-indigo-600 focus:outline-none"
+            />
+          </label>
+        </div>
+
+        <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-3">
+          <label className="block">
+            <span className="text-xs font-medium text-slate-700">Payment UPI ID (Optional)</span>
+            <input
+              type="text"
+              placeholder="e.g. business@okicici"
+              value={activeBusiness.upiId || ''}
+              onChange={(e) => handleFieldChange('upiId', e.target.value)}
+              className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 font-mono text-xs text-slate-900 focus:border-indigo-600 focus:outline-none"
+            />
+          </label>
+          <label className="block sm:col-span-2">
+            <span className="text-xs font-medium text-slate-700">Payment & Delivery Terms</span>
+            <input
+              type="text"
+              placeholder="e.g. 50% booking advance, balance on delivery"
+              value={activeBusiness.termsNote || ''}
+              onChange={(e) => handleFieldChange('termsNote', e.target.value)}
+              className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-xs text-slate-900 focus:border-indigo-600 focus:outline-none"
             />
           </label>
         </div>
@@ -348,6 +402,14 @@ export function RateCardManager({
               onChange={handleCsvUpload}
               className="hidden"
             />
+            <button
+              type="button"
+              onClick={handleSampleCsvDownload}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-100 whitespace-nowrap"
+            >
+              <Download className="h-3.5 w-3.5" aria-hidden="true" />
+              <span>CSV Template</span>
+            </button>
             <button
               type="button"
               onClick={() => fileInputRef.current?.click()}

@@ -29,6 +29,8 @@ export interface BusinessProfile {
   gstin: string;
   phone: string;
   address: string;
+  upiId?: string;
+  termsNote?: string;
   items: CatalogItem[];
   sampleInquiries: SampleInquiry[];
 }
@@ -96,6 +98,8 @@ export interface BusinessSnapshot {
   phone: string;
   address: string;
   presetKey: string;
+  upiId?: string;
+  termsNote?: string;
 }
 
 export interface SavedQuote {

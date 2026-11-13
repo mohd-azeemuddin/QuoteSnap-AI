@@ -186,9 +186,24 @@ export function ShareableQuoteView({ quote, onExitShareView }: ShareableQuoteVie
                 {formatINRInWords(quote.totals.grandTotal)}
               </div>
             </div>
+            {quote.businessSnapshot.upiId && (
+              <div className="rounded-md border border-slate-200 bg-white px-3 py-2 text-slate-700">
+                <span className="font-semibold text-slate-900">UPI Payment ID: </span>
+                <span className="font-mono text-xs text-indigo-800">
+                  {quote.businessSnapshot.upiId}
+                </span>
+              </div>
+            )}
             <p>
+              {quote.businessSnapshot.termsNote
+                ? `${quote.businessSnapshot.termsNote} `
+                : ''}
               Generated for customer review. Final tax invoice will be issued upon order confirmation.
             </p>
+            <div className="pt-1 text-[11px] text-slate-500">
+              For <strong className="text-slate-800">{quote.businessSnapshot.businessName}</strong> ·{' '}
+              Authorized Signatory
+            </div>
           </div>
 
           <div className="w-full sm:w-80 space-y-2 text-xs">

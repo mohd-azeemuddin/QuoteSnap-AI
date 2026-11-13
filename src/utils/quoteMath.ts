@@ -288,6 +288,8 @@ export function buildQuoteFromExtraction(params: {
       phone: business.phone,
       address: business.address,
       presetKey: business.presetKey,
+      upiId: business.upiId,
+      termsNote: business.termsNote,
     },
     customerName: extraction.customerName || 'Walk-in Customer',
     customerPhone: extraction.customerPhone || '',
@@ -315,7 +317,6 @@ export function buildQuoteFromExtraction(params: {
 }
 
 export function encodeShareableQuote(quote: SavedQuote): string {
-  // Compact payload omitting raw inquiry/transcript to keep share URLs clean and concise
   const compact: SavedQuote = {
     ...quote,
     inquiryText: '',
@@ -469,4 +470,18 @@ export function exportRateCardCsv(items: CatalogItem[]): string {
     ].join(',')
   );
   return [header, ...rows].join('\n');
+}
+
+export function isValidGSTIN(gstin: string): boolean {
+  const clean = gstin.trim().toUpperCase();
+  return /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/.test(clean);
+}
+
+export function getSampleRateCardCsv(): string {
+  return [
+    'Item Name,Unit,Unit Price (INR),GST %,Keywords (semicolon separated),HSN/SAC',
+    'Modular Wardrobe (BWP Ply + Laminate),sq ft,1450,18,wardrobe; cupboard; almirah; laminate,9403',
+    'Gypsum False Ceiling,sq ft,115,18,false ceiling; ceiling; pop,9954',
+    'Interior Wall Painting (Tractor Emulsion),sq ft,28,18,painting; wall paint; emulsion,9954',
+  ].join('\n');
 }

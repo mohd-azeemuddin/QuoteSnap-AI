@@ -10,6 +10,8 @@ export const PRESET_BUSINESSES: BusinessProfile[] = [
     gstin: '29AABCN4821K1Z5',
     phone: '+91 98450 71234',
     address: '100 Feet Road, Indiranagar, Bengaluru 560038',
+    upiId: 'nammainteriors@okicici',
+    termsNote: '50% booking advance on design sign-off, 40% before factory dispatch, 10% on handover.',
     items: [
       {
         id: 'int-wardrobe-lam',
@@ -120,6 +122,8 @@ export const PRESET_BUSINESSES: BusinessProfile[] = [
     gstin: '29AAFCK9104M1Z2',
     phone: '+91 98802 44190',
     address: '80 Feet Road, Koramangala 4th Block, Bengaluru 560034',
+    upiId: 'kpsignage@okhdfcbank',
+    termsNote: '50% advance with print-ready artwork approval; delivery within 48 hours in Bengaluru.',
     items: [
       {
         id: 'prt-flex-banner',
@@ -212,6 +216,8 @@ export const PRESET_BUSINESSES: BusinessProfile[] = [
     gstin: '29AADCB7732R1Z9',
     phone: '+91 99014 88321',
     address: '27th Main Road, HSR Layout Sector 1, Bengaluru 560102',
+    upiId: 'blrcatering@okaxis',
+    termsNote: '50% advance 48 hrs before event; final headcount confirmation 24 hrs prior.',
     items: [
       {
         id: 'cat-veg-south',

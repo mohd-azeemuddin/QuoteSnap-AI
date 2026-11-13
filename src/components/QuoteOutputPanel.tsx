@@ -547,18 +547,35 @@ export function QuoteOutputPanel({
                 {formatINRInWords(quote.totals.grandTotal)}
               </div>
             </div>
+            {quote.businessSnapshot.upiId && (
+              <div className="rounded-md border border-slate-200 bg-white px-3 py-2 text-slate-700">
+                <span className="font-semibold text-slate-900">UPI Payment ID: </span>
+                <span className="font-mono text-xs text-indigo-800">
+                  {quote.businessSnapshot.upiId}
+                </span>
+              </div>
+            )}
             <div>
               <div className="font-semibold text-slate-700">Terms & Tax Notes</div>
               <p className="mt-1">
-                1. Prices are quoted in Indian Rupees (INR) based on the active business rate card.
+                {quote.businessSnapshot.termsNote && (
+                  <>
+                    1. {quote.businessSnapshot.termsNote}
+                    <br />
+                  </>
+                )}
+                {quote.businessSnapshot.termsNote ? '2.' : '1.'} Prices are quoted in Indian Rupees
+                (INR); final billing follows confirmed site measurements / headcount.
                 <br />
-                2. Final billing will follow actual on-site measurements / confirmed headcount.
-                <br />
-                3.{' '}
+                {quote.businessSnapshot.termsNote ? '3.' : '2.'}{' '}
                 {supplyType === 'inter'
                   ? 'Inter-state supply: IGST applied as per Place of Supply.'
                   : 'Intra-state supply: GST split equally into CGST & SGST.'}
               </p>
+            </div>
+            <div className="pt-2 text-[11px] text-slate-500">
+              For <strong className="text-slate-800">{quote.businessSnapshot.businessName}</strong> ·{' '}
+              Authorized Signatory
             </div>
           </div>
 

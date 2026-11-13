@@ -3,7 +3,6 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import dotenv from 'dotenv';
 import { GoogleGenAI, Type, ThinkingLevel } from '@google/genai';
-import { createServer as createViteServer } from 'vite';
 
 dotenv.config();
 
@@ -50,6 +49,24 @@ const SAMPLE_VOICE_SCRIPTS: Record<string, { fileName: string; script: string }>
 };
 
 const sampleVoiceCache = new Map<string, { mimeType: string; data: string; fileName: string }>();
+
+const rateBuckets = new Map<string, number[]>();
+function checkRateLimit(ip: string, bucketKey: string, maxRequests: number, windowMs: number): boolean {
+  const key = `${bucketKey}:${ip}`;
+  const now = Date.now();
+  const recent = (rateBuckets.get(key) || []).filter((ts) => now - ts < windowMs);
+  if (recent.length >= maxRequests) {
+    rateBuckets.set(key, recent);
+    return false;
+  }
+  recent.push(now);
+  rateBuckets.set(key, recent);
+  if (rateBuckets.size > 1000) {
+    const firstKey = rateBuckets.keys().next().value;
+    if (firstKey) rateBuckets.delete(firstKey);
+  }
+  return true;
+}
 
 const extractionResponseSchema = {
   type: Type.OBJECT,
@@ -220,15 +237,29 @@ async function generateWithRetry(
 
 async function startServer() {
   const app = express();
+  app.set('trust proxy', 1);
   app.use(express.json({ limit: '25mb' }));
 
+  app.use((_req, res, next) => {
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+    next();
+  });
+
   app.get('/api/health', (_req, res) => {
-    res.json({ ok: true, service: 'quotesnap-ai' });
+    res.json({ ok: true, service: 'quotesnap-ai', timestamp: new Date().toISOString() });
   });
 
   app.get('/api/sample-voice/:presetKey', async (req, res) => {
     try {
-      const presetKey = req.params.presetKey in SAMPLE_VOICE_SCRIPTS ? req.params.presetKey : 'interiors';
+      const ip = req.ip || 'unknown';
+      if (!checkRateLimit(ip, 'sample-voice', 30, 60_000)) {
+        res.status(429).json({ error: 'Too many requests. Please wait a minute and try again.' });
+        return;
+      }
+
+      const presetKey =
+        req.params.presetKey in SAMPLE_VOICE_SCRIPTS ? req.params.presetKey : 'interiors';
       const cached = sampleVoiceCache.get(presetKey);
       if (cached) {
         res.json(cached);
@@ -285,6 +316,14 @@ async function startServer() {
   app.post('/api/extract-quote', async (req, res) => {
     const startTime = Date.now();
     try {
+      const ip = req.ip || 'unknown';
+      if (!checkRateLimit(ip, 'extract-quote', 20, 60_000)) {
+        res.status(429).json({
+          error: 'Rate limit reached (20 quotes/min). Please wait a few seconds before trying again.',
+        });
+        return;
+      }
+
       const body = req.body as ExtractQuoteRequestBody;
       const catalogItems = body.catalogItems ?? [];
       const inquiryText = (body.inquiryText ?? '').trim();
@@ -298,9 +337,23 @@ async function startServer() {
         return;
       }
 
+      if (inquiryText.length > 8000) {
+        res.status(400).json({
+          error: 'Inquiry text is too long (maximum 8,000 characters).',
+        });
+        return;
+      }
+
       if (catalogItems.length === 0) {
         res.status(400).json({
           error: 'Active Rate Card has no catalog items. Add at least one item before generating a quote.',
+        });
+        return;
+      }
+
+      if (catalogItems.length > 150) {
+        res.status(400).json({
+          error: 'Catalog exceeds 150 items limit for single-quote extraction.',
         });
         return;
       }
@@ -382,9 +435,14 @@ CRITICAL RULES:
     }
   });
 
+  app.all('/api/*', (_req, res) => {
+    res.status(404).json({ error: 'API endpoint not found.' });
+  });
+
   const isProd = process.env.NODE_ENV === 'production';
 
   if (!isProd) {
+    const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: 'spa',
@@ -392,7 +450,7 @@ CRITICAL RULES:
     app.use(vite.middlewares);
   } else {
     const distPath = path.resolve(__dirname, 'dist');
-    app.use(express.static(distPath));
+    app.use(express.static(distPath, { maxAge: '1d' }));
     app.get('*', (_req, res) => {
       res.sendFile(path.join(distPath, 'index.html'));
     });
