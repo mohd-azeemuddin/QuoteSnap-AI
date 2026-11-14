@@ -323,23 +323,29 @@ export function InquiryInputCard({
       </div>
 
       {/* Realistic One-Click Preset Test Buttons */}
-      <div className="mt-4">
-        <div className="mb-1.5 text-[11px] font-medium text-slate-500">
-          One-click {activeBusiness.presetName} WhatsApp inquiries:
+      {activeBusiness.sampleInquiries.length > 0 ? (
+        <div className="mt-4">
+          <div className="mb-1.5 text-[11px] font-medium text-slate-500">
+            One-click {activeBusiness.presetName} WhatsApp inquiries:
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {activeBusiness.sampleInquiries.map((sample) => (
+              <button
+                key={sample.id}
+                type="button"
+                onClick={() => onChangeText(sample.text)}
+                className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-medium text-slate-700 hover:border-indigo-300 hover:bg-indigo-50/50 hover:text-indigo-900 transition-colors text-left"
+              >
+                {sample.label}
+              </button>
+            ))}
+          </div>
         </div>
-        <div className="flex flex-wrap gap-2">
-          {activeBusiness.sampleInquiries.map((sample) => (
-            <button
-              key={sample.id}
-              type="button"
-              onClick={() => onChangeText(sample.text)}
-              className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-medium text-slate-700 hover:border-indigo-300 hover:bg-indigo-50/50 hover:text-indigo-900 transition-colors text-left"
-            >
-              {sample.label}
-            </button>
-          ))}
+      ) : (
+        <div className="mt-3 text-xs text-slate-500">
+          Custom rate card active (<strong className="text-slate-700">{activeBusiness.presetName}</strong>) — paste a customer WhatsApp message, upload a photo, or record a voice note below.
         </div>
-      </div>
+      )}
 
       {/* WhatsApp / Text Input */}
       <div className="mt-4">

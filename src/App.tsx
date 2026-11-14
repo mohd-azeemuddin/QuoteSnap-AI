@@ -84,6 +84,7 @@ export default function App() {
   const [agentStepIndex, setAgentStepIndex] = useState(0);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [mobileDrawerOpen, setMobileDrawerOpen] = useState(false);
+  const [startAddingBusiness, setStartAddingBusiness] = useState(false);
 
   useEffect(() => {
     try {
@@ -135,10 +136,40 @@ export default function App() {
     setBusinesses((prev) => prev.map((b) => (b.id === updated.id ? updated : b)));
   };
 
+  const handleCreateBusiness = (newBusiness: BusinessProfile) => {
+    setBusinesses((prev) => [...prev, newBusiness]);
+    setActiveBusinessId(newBusiness.id);
+    setStartAddingBusiness(false);
+  };
+
+  const handleDeleteBusiness = (businessId: string) => {
+    setBusinesses((prev) => {
+      if (prev.length <= 1) return prev;
+      const remaining = prev.filter((b) => b.id !== businessId);
+      if (activeBusinessId === businessId && remaining.length > 0) {
+        setActiveBusinessId(remaining[0].id);
+      }
+      return remaining;
+    });
+  };
+
   const handleResetPreset = (presetId: string) => {
     const original = PRESET_BUSINESSES.find((p) => p.id === presetId);
     if (!original) return;
     setBusinesses((prev) => prev.map((b) => (b.id === presetId ? original : b)));
+  };
+
+  const handleAddBusinessClick = () => {
+    setMobileDrawerOpen(false);
+    setStartAddingBusiness(true);
+    setActiveView('ratecard');
+  };
+
+  const handleSelectView = (view: AppView) => {
+    if (view !== 'ratecard') {
+      setStartAddingBusiness(false);
+    }
+    setActiveView(view);
   };
 
   const handleNewQuote = () => {
@@ -333,7 +364,7 @@ export default function App() {
     <div className="min-h-screen bg-slate-50 text-slate-900">
       <TopBar
         activeView={activeView}
-        onSelectView={setActiveView}
+        onSelectView={handleSelectView}
         onNewQuote={handleNewQuote}
       />
 
@@ -345,7 +376,7 @@ export default function App() {
                 {activeBusiness.presetName}
               </div>
               <div className="font-mono text-[11px] text-slate-500 tabular-nums">
-                {activeBusiness.items.length} items · GSTIN {activeBusiness.gstin}
+                {activeBusiness.items.length} items · GSTIN {activeBusiness.gstin || 'Not set'}
               </div>
             </div>
             <button
@@ -385,8 +416,10 @@ export default function App() {
                   }}
                   onOpenFullEditor={() => {
                     setMobileDrawerOpen(false);
+                    setStartAddingBusiness(false);
                     setActiveView('ratecard');
                   }}
+                  onAddBusiness={handleAddBusinessClick}
                 />
               </div>
             </div>
@@ -398,7 +431,11 @@ export default function App() {
                 presets={businesses}
                 activeBusiness={activeBusiness}
                 onSelectPreset={setActiveBusinessId}
-                onOpenFullEditor={() => setActiveView('ratecard')}
+                onOpenFullEditor={() => {
+                  setStartAddingBusiness(false);
+                  setActiveView('ratecard');
+                }}
+                onAddBusiness={handleAddBusinessClick}
               />
             </div>
 
@@ -441,6 +478,10 @@ export default function App() {
           onSelectPreset={setActiveBusinessId}
           onUpdateBusiness={handleUpdateBusiness}
           onResetPreset={handleResetPreset}
+          onCreateBusiness={handleCreateBusiness}
+          onDeleteBusiness={handleDeleteBusiness}
+          startAddingBusiness={startAddingBusiness}
+          onDismissAddBusiness={() => setStartAddingBusiness(false)}
         />
       )}
 

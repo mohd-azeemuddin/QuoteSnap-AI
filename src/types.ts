@@ -22,7 +22,7 @@ export interface SampleInquiry {
 
 export interface BusinessProfile {
   id: string;
-  presetKey: 'interiors' | 'print' | 'catering';
+  presetKey: 'interiors' | 'print' | 'catering' | 'custom';
   presetName: string;
   categoryLabel: string;
   businessName: string;

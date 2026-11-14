@@ -116,3 +116,60 @@ test('CSV rate card export and import round-trip', () => {
   assert.equal(parsed[0].unitPrice, interiors.items[0].unitPrice);
   assert.equal(parsed[0].gstPercent, interiors.items[0].gstPercent);
 });
+
+test('Custom business generates clean 3-letter quote number prefix', () => {
+  const quote = buildQuoteFromExtraction({
+    business: {
+      id: 'custom-biryani',
+      presetKey: 'custom',
+      presetName: 'Nawazish Biryani House',
+      categoryLabel: 'Biryani & Bulk Catering',
+      businessName: 'Nawazish Biryani House',
+      gstin: '',
+      phone: '+91 98450 00000',
+      address: 'Kammanahalli, Bengaluru',
+      items: [
+        {
+          id: 'item-1',
+          name: 'Mutton Dum Biryani Bucket (10 Pax)',
+          unit: 'bucket',
+          unitPrice: 2800,
+          gstPercent: 5,
+          keywords: ['mutton biryani', 'bucket'],
+        },
+      ],
+      sampleInquiries: [],
+    },
+    extraction: {
+      customerName: 'Azeem',
+      customerPhone: '',
+      customerLocation: 'Kammanahalli',
+      detectedLanguage: 'Hinglish',
+      confidenceScore: 0.95,
+      overallSummary: '2 Mutton Dum Biryani buckets for team lunch.',
+      attachmentTranscript: '',
+      lineItems: [
+        {
+          catalogItemId: 'item-1',
+          matchedName: 'Mutton Dum Biryani Bucket (10 Pax)',
+          quantity: 2,
+          dimensionsNote: '2 buckets',
+          confidence: 'high',
+          reasoning: 'Matched mutton biryani bucket',
+        },
+      ],
+      missingInfoFlags: [],
+      unmatchedItems: [],
+      whatsappFollowUpEn: 'Your quote is ready.',
+      whatsappFollowUpHinglish: 'Aapka quote ready hai.',
+    },
+    inquiryText: '2 mutton biryani bucket bhejo',
+    hasImage: false,
+    hasAudio: false,
+    processingTimeMs: 900,
+    existingQuoteCount: 3,
+  });
+
+  assert.match(quote.quoteNumber, /^QS-NAW-\d{4}-0104$/);
+  assert.equal(quote.totals.grandTotal, 5880);
+});

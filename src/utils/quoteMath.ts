@@ -272,7 +272,11 @@ export function buildQuoteFromExtraction(params: {
 
   const now = new Date();
   const validDate = new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000);
-  const prefix = business.presetKey.slice(0, 3).toUpperCase();
+  const rawPrefix =
+    business.presetKey === 'custom'
+      ? business.presetName.replace(/[^A-Za-z]/g, '')
+      : business.presetKey;
+  const prefix = (rawPrefix || 'BIZ').slice(0, 3).toUpperCase();
   const seq = String(existingQuoteCount + 101).padStart(4, '0');
   const quoteNumber = `QS-${prefix}-${now.getFullYear().toString().slice(-2)}${String(now.getMonth() + 1).padStart(2, '0')}-${seq}`;
 
@@ -373,7 +377,7 @@ export function buildWhatsAppMessage(quote: SavedQuote, shareUrl?: string): stri
     followUp,
     '',
     `*${quote.businessSnapshot.businessName}*`,
-    `Quote #: ${quote.quoteNumber} | GSTIN: ${quote.businessSnapshot.gstin}`,
+    `Quote #: ${quote.quoteNumber}${quote.businessSnapshot.gstin ? ` | GSTIN: ${quote.businessSnapshot.gstin}` : ''}`,
     `Place of Supply: ${quote.placeOfSupply}`,
     '',
     itemLines,

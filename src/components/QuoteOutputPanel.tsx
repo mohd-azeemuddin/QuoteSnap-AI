@@ -272,9 +272,13 @@ export function QuoteOutputPanel({
             </h2>
             <p className="mt-1 text-xs text-slate-600">{quote.businessSnapshot.address}</p>
             <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-xs text-slate-700 tabular-nums">
-              <span>GSTIN: {quote.businessSnapshot.gstin}</span>
-              <span aria-hidden="true">·</span>
-              <span>Tel: {quote.businessSnapshot.phone}</span>
+              {quote.businessSnapshot.gstin && (
+                <span>GSTIN: {quote.businessSnapshot.gstin}</span>
+              )}
+              {quote.businessSnapshot.gstin && quote.businessSnapshot.phone && (
+                <span aria-hidden="true">·</span>
+              )}
+              {quote.businessSnapshot.phone && <span>Tel: {quote.businessSnapshot.phone}</span>}
             </div>
           </div>
 

@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   Building2,
   Download,
@@ -10,6 +10,7 @@ import {
   Check,
   X,
 } from 'lucide-react';
+import { PRESET_BUSINESSES } from '../data/presets.ts';
 import type { BusinessProfile, CatalogItem } from '../types.ts';
 import {
   exportRateCardCsv,
@@ -24,6 +25,7 @@ interface RateCardSidebarProps {
   activeBusiness: BusinessProfile;
   onSelectPreset: (presetId: string) => void;
   onOpenFullEditor: () => void;
+  onAddBusiness: () => void;
 }
 
 export function RateCardSidebar({
@@ -31,6 +33,7 @@ export function RateCardSidebar({
   activeBusiness,
   onSelectPreset,
   onOpenFullEditor,
+  onAddBusiness,
 }: RateCardSidebarProps) {
   return (
     <aside className="no-print flex flex-col gap-5 rounded-xl border border-slate-200 bg-white p-5">
@@ -47,12 +50,12 @@ export function RateCardSidebar({
           </button>
         </div>
         <p className="mt-1 text-xs text-slate-500">
-          Switch Bangalore SMB presets or customize pricing.
+          Switch businesses or add your own custom rate card.
         </p>
       </div>
 
-      {/* Preset Switcher */}
-      <div className="flex flex-col gap-1.5" role="radiogroup" aria-label="Business Presets">
+      {/* Business Switcher */}
+      <div className="flex flex-col gap-1.5" role="radiogroup" aria-label="Business Profiles">
         {presets.map((preset) => {
           const isSelected = preset.id === activeBusiness.id;
           return (
@@ -71,15 +74,28 @@ export function RateCardSidebar({
             </button>
           );
         })}
+
+        <button
+          type="button"
+          onClick={onAddBusiness}
+          className="mt-1 inline-flex items-center justify-center gap-1.5 rounded-lg border border-dashed border-indigo-300 bg-indigo-50/40 px-3 py-2 text-xs font-semibold text-indigo-700 transition-colors hover:border-indigo-400 hover:bg-indigo-50 whitespace-nowrap"
+        >
+          <Plus className="h-3.5 w-3.5" aria-hidden="true" />
+          <span>Add New Business</span>
+        </button>
       </div>
 
       {/* Active Business Snapshot */}
       <div className="border-t border-slate-100 pt-4 text-xs">
         <div className="font-semibold text-slate-900">{activeBusiness.businessName}</div>
         <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 font-mono text-[11px] text-slate-500 tabular-nums">
-          <span>GSTIN: {activeBusiness.gstin}</span>
-          <span aria-hidden="true">·</span>
-          <span>{activeBusiness.phone}</span>
+          <span>GSTIN: {activeBusiness.gstin || 'Not set'}</span>
+          {activeBusiness.phone && (
+            <>
+              <span aria-hidden="true">·</span>
+              <span>{activeBusiness.phone}</span>
+            </>
+          )}
         </div>
       </div>
 
@@ -91,26 +107,40 @@ export function RateCardSidebar({
             {activeBusiness.items.length} items
           </span>
         </div>
-        <div className="max-h-72 space-y-1.5 overflow-y-auto pr-1">
-          {activeBusiness.items.map((item) => (
-            <div
-              key={item.id}
-              className="flex items-start justify-between gap-2 rounded-md border border-slate-100 bg-slate-50/70 px-2.5 py-2"
+        {activeBusiness.items.length === 0 ? (
+          <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50 p-3 text-xs text-slate-500">
+            <p>No items in this catalog yet.</p>
+            <button
+              type="button"
+              onClick={onOpenFullEditor}
+              className="mt-2 inline-flex items-center gap-1 font-medium text-indigo-700 hover:text-indigo-800"
             >
-              <div className="min-w-0">
-                <div className="truncate text-xs font-medium text-slate-800" title={item.name}>
-                  {item.name}
+              <Plus className="h-3.5 w-3.5" aria-hidden="true" />
+              <span>Add items or import CSV</span>
+            </button>
+          </div>
+        ) : (
+          <div className="max-h-72 space-y-1.5 overflow-y-auto pr-1">
+            {activeBusiness.items.map((item) => (
+              <div
+                key={item.id}
+                className="flex items-start justify-between gap-2 rounded-md border border-slate-100 bg-slate-50/70 px-2.5 py-2"
+              >
+                <div className="min-w-0">
+                  <div className="truncate text-xs font-medium text-slate-800" title={item.name}>
+                    {item.name}
+                  </div>
+                  <div className="mt-0.5 text-[11px] text-slate-500">
+                    per {item.unit} · {item.gstPercent}% GST
+                  </div>
                 </div>
-                <div className="mt-0.5 text-[11px] text-slate-500">
-                  per {item.unit} · {item.gstPercent}% GST
+                <div className="shrink-0 font-mono text-xs font-semibold text-slate-900 tabular-nums">
+                  {formatINRCompact(item.unitPrice)}
                 </div>
               </div>
-              <div className="shrink-0 font-mono text-xs font-semibold text-slate-900 tabular-nums">
-                {formatINRCompact(item.unitPrice)}
-              </div>
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        )}
       </div>
     </aside>
   );
@@ -122,7 +152,35 @@ interface RateCardManagerProps {
   onSelectPreset: (presetId: string) => void;
   onUpdateBusiness: (updated: BusinessProfile) => void;
   onResetPreset: (presetId: string) => void;
+  onCreateBusiness: (newBusiness: BusinessProfile) => void;
+  onDeleteBusiness: (businessId: string) => void;
+  startAddingBusiness?: boolean;
+  onDismissAddBusiness?: () => void;
 }
+
+interface NewBusinessDraft {
+  presetName: string;
+  categoryLabel: string;
+  businessName: string;
+  gstin: string;
+  phone: string;
+  address: string;
+  upiId: string;
+  termsNote: string;
+  starterCatalog: string;
+}
+
+const INITIAL_NEW_BUSINESS: NewBusinessDraft = {
+  presetName: '',
+  categoryLabel: '',
+  businessName: '',
+  gstin: '',
+  phone: '',
+  address: '',
+  upiId: '',
+  termsNote: '50% advance on order confirmation, balance on delivery.',
+  starterCatalog: 'blank',
+};
 
 export function RateCardManager({
   presets,
@@ -130,11 +188,25 @@ export function RateCardManager({
   onSelectPreset,
   onUpdateBusiness,
   onResetPreset,
+  onCreateBusiness,
+  onDeleteBusiness,
+  startAddingBusiness = false,
+  onDismissAddBusiness,
 }: RateCardManagerProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [editingItemId, setEditingItemId] = useState<string | null>(null);
   const [editDraft, setEditDraft] = useState<CatalogItem | null>(null);
   const [csvFeedback, setCsvFeedback] = useState<string | null>(null);
+
+  const [showNewBusinessForm, setShowNewBusinessForm] = useState<boolean>(startAddingBusiness);
+  const [newBusinessDraft, setNewBusinessDraft] = useState<NewBusinessDraft>(INITIAL_NEW_BUSINESS);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (startAddingBusiness) {
+      setShowNewBusinessForm(true);
+    }
+  }, [startAddingBusiness]);
 
   const [newItem, setNewItem] = useState<{
     name: string;
@@ -145,9 +217,9 @@ export function RateCardManager({
     hsnSac: string;
   }>({
     name: '',
-    unit: 'sq ft',
+    unit: 'plate',
     unitPrice: '',
-    gstPercent: '18',
+    gstPercent: '5',
     keywords: '',
     hsnSac: '',
   });
@@ -157,6 +229,54 @@ export function RateCardManager({
       ...activeBusiness,
       [field]: value,
     });
+  };
+
+  const handleCreateBusinessSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const shortName = newBusinessDraft.presetName.trim();
+    if (!shortName) return;
+
+    const legalName = newBusinessDraft.businessName.trim() || shortName;
+    const category = newBusinessDraft.categoryLabel.trim() || 'Custom SMB Rate Card';
+
+    let starterItems: CatalogItem[] = [];
+    if (newBusinessDraft.starterCatalog !== 'blank') {
+      const templatePreset = PRESET_BUSINESSES.find(
+        (p) => p.id === newBusinessDraft.starterCatalog
+      );
+      if (templatePreset) {
+        starterItems = templatePreset.items.map((item, idx) => ({
+          ...item,
+          id: `custom-${Date.now()}-${idx}`,
+        }));
+      }
+    }
+
+    const created: BusinessProfile = {
+      id: `custom-${Date.now()}`,
+      presetKey: 'custom',
+      presetName: shortName,
+      categoryLabel: category,
+      businessName: legalName,
+      gstin: newBusinessDraft.gstin.trim().toUpperCase(),
+      phone: newBusinessDraft.phone.trim(),
+      address: newBusinessDraft.address.trim(),
+      upiId: newBusinessDraft.upiId.trim() || undefined,
+      termsNote: newBusinessDraft.termsNote.trim() || undefined,
+      items: starterItems,
+      sampleInquiries: [],
+    };
+
+    onCreateBusiness(created);
+    setNewBusinessDraft(INITIAL_NEW_BUSINESS);
+    setShowNewBusinessForm(false);
+    onDismissAddBusiness?.();
+  };
+
+  const handleCancelNewBusiness = () => {
+    setShowNewBusinessForm(false);
+    setNewBusinessDraft(INITIAL_NEW_BUSINESS);
+    onDismissAddBusiness?.();
   };
 
   const handleAddItem = (e: React.FormEvent) => {
@@ -183,14 +303,13 @@ export function RateCardManager({
       items: [item, ...activeBusiness.items],
     });
 
-    setNewItem({
+    setNewItem((prev) => ({
+      ...prev,
       name: '',
-      unit: 'sq ft',
       unitPrice: '',
-      gstPercent: '18',
       keywords: '',
       hsnSac: '',
-    });
+    }));
   };
 
   const startEditItem = (item: CatalogItem) => {
@@ -259,27 +378,33 @@ export function RateCardManager({
   };
 
   const gstinValid = !activeBusiness.gstin.trim() || isValidGSTIN(activeBusiness.gstin);
+  const newBusinessGstinValid =
+    !newBusinessDraft.gstin.trim() || isValidGSTIN(newBusinessDraft.gstin);
+  const isDefaultPreset = PRESET_BUSINESSES.some((p) => p.id === activeBusiness.id);
 
   return (
     <div className="mx-auto max-w-[1440px] px-4 py-6 sm:px-6 lg:px-8">
-      {/* Header & Preset Selector */}
-      <div className="flex flex-col gap-4 border-b border-slate-200 pb-6 md:flex-row md:items-end md:justify-between">
+      {/* Header & Business Selector */}
+      <div className="flex flex-col gap-4 border-b border-slate-200 pb-6 lg:flex-row lg:items-end lg:justify-between">
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-slate-900">
             Business Profile & Rate Card
           </h1>
           <p className="mt-1 text-sm text-slate-600">
-            Configure your GST details, pricing catalog, or upload a CSV rate card. Saved automatically in your browser.
+            Create your own business profile, configure GST details, or upload a CSV rate card. Saved automatically in your browser.
           </p>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          <div className="inline-flex rounded-lg border border-slate-200 bg-slate-100 p-1">
+          <div className="inline-flex flex-wrap gap-1 rounded-lg border border-slate-200 bg-slate-100 p-1">
             {presets.map((preset) => (
               <button
                 key={preset.id}
                 type="button"
-                onClick={() => onSelectPreset(preset.id)}
+                onClick={() => {
+                  onSelectPreset(preset.id);
+                  setConfirmDeleteId(null);
+                }}
                 className={`rounded-md px-3 py-1.5 text-xs font-medium whitespace-nowrap transition-colors ${
                   preset.id === activeBusiness.id
                     ? 'bg-white text-slate-900 shadow-xs'
@@ -290,16 +415,249 @@ export function RateCardManager({
               </button>
             ))}
           </div>
+
           <button
             type="button"
-            onClick={() => onResetPreset(activeBusiness.id)}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50 whitespace-nowrap"
+            onClick={() => setShowNewBusinessForm((prev) => !prev)}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-700 px-3 py-2 text-xs font-semibold text-white hover:bg-indigo-800 whitespace-nowrap"
           >
-            <RotateCcw className="h-3.5 w-3.5" aria-hidden="true" />
-            <span>Reset Preset</span>
+            <Plus className="h-3.5 w-3.5" aria-hidden="true" />
+            <span>Add New Business</span>
           </button>
+
+          {isDefaultPreset ? (
+            <button
+              type="button"
+              onClick={() => onResetPreset(activeBusiness.id)}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50 whitespace-nowrap"
+            >
+              <RotateCcw className="h-3.5 w-3.5" aria-hidden="true" />
+              <span>Reset Preset</span>
+            </button>
+          ) : (
+            presets.length > 1 && (
+              confirmDeleteId === activeBusiness.id ? (
+                <div className="inline-flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onDeleteBusiness(activeBusiness.id);
+                      setConfirmDeleteId(null);
+                    }}
+                    className="inline-flex items-center gap-1 rounded-lg bg-red-600 px-3 py-2 text-xs font-semibold text-white hover:bg-red-700 whitespace-nowrap"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
+                    <span>Confirm Delete</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setConfirmDeleteId(null)}
+                    className="inline-flex items-center rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-xs font-medium text-slate-600 hover:bg-slate-50 whitespace-nowrap"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setConfirmDeleteId(activeBusiness.id)}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-red-200 bg-white px-3 py-2 text-xs font-medium text-red-700 hover:bg-red-50 whitespace-nowrap"
+                >
+                  <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
+                  <span>Delete Business</span>
+                </button>
+              )
+            )
+          )}
         </div>
       </div>
+
+      {/* Add New Business Inline Form */}
+      {showNewBusinessForm && (
+        <section className="mt-6 rounded-xl border border-indigo-200 bg-indigo-50/30 p-6">
+          <div className="flex items-start justify-between gap-4 border-b border-indigo-100 pb-4">
+            <div>
+              <h2 className="text-base font-semibold text-slate-900">
+                Create New Business Profile
+              </h2>
+              <p className="mt-0.5 text-xs text-slate-600">
+                Add any restaurant, shop, clinic, or contractor business. You can start with a blank menu/catalog or copy a starter preset.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={handleCancelNewBusiness}
+              className="rounded-md p-1 text-slate-500 hover:bg-white hover:text-slate-800"
+              aria-label="Close new business form"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+
+          <form onSubmit={handleCreateBusinessSubmit} className="mt-4 space-y-4">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+              <label className="block">
+                <span className="text-xs font-medium text-slate-700">
+                  Business Display Name <span className="text-red-600">*</span>
+                </span>
+                <input
+                  type="text"
+                  required
+                  placeholder="e.g. Nawazish Biryani House"
+                  value={newBusinessDraft.presetName}
+                  onChange={(e) =>
+                    setNewBusinessDraft((prev) => ({ ...prev, presetName: e.target.value }))
+                  }
+                  className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-indigo-600 focus:outline-none"
+                />
+              </label>
+
+              <label className="block">
+                <span className="text-xs font-medium text-slate-700">Category / Tagline</span>
+                <input
+                  type="text"
+                  placeholder="e.g. Biryani & Bulk Party Catering"
+                  value={newBusinessDraft.categoryLabel}
+                  onChange={(e) =>
+                    setNewBusinessDraft((prev) => ({ ...prev, categoryLabel: e.target.value }))
+                  }
+                  className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-indigo-600 focus:outline-none"
+                />
+              </label>
+
+              <label className="block">
+                <span className="text-xs font-medium text-slate-700">Legal / Trade Name</span>
+                <input
+                  type="text"
+                  placeholder="Defaults to display name"
+                  value={newBusinessDraft.businessName}
+                  onChange={(e) =>
+                    setNewBusinessDraft((prev) => ({ ...prev, businessName: e.target.value }))
+                  }
+                  className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-indigo-600 focus:outline-none"
+                />
+              </label>
+
+              <label className="block">
+                <span className="text-xs font-medium text-slate-700">Starter Catalog</span>
+                <select
+                  value={newBusinessDraft.starterCatalog}
+                  onChange={(e) =>
+                    setNewBusinessDraft((prev) => ({ ...prev, starterCatalog: e.target.value }))
+                  }
+                  className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-indigo-600 focus:outline-none"
+                >
+                  <option value="blank">Blank Catalog (0 items)</option>
+                  {PRESET_BUSINESSES.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      Copy from {p.presetName} ({p.items.length} items)
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+              <label className="block">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-medium text-slate-700">GSTIN (Optional)</span>
+                  {!newBusinessGstinValid && (
+                    <span className="text-[11px] font-medium text-amber-700">
+                      15-char format
+                    </span>
+                  )}
+                </div>
+                <input
+                  type="text"
+                  maxLength={15}
+                  placeholder="e.g. 29AABCN4821K1Z5"
+                  value={newBusinessDraft.gstin}
+                  onChange={(e) =>
+                    setNewBusinessDraft((prev) => ({
+                      ...prev,
+                      gstin: e.target.value.toUpperCase(),
+                    }))
+                  }
+                  className={`mt-1 w-full rounded-lg border bg-white px-3 py-2 font-mono text-sm text-slate-900 uppercase focus:outline-none ${
+                    newBusinessGstinValid
+                      ? 'border-slate-300 focus:border-indigo-600'
+                      : 'border-amber-400 focus:border-amber-600'
+                  }`}
+                />
+              </label>
+
+              <label className="block">
+                <span className="text-xs font-medium text-slate-700">WhatsApp / Phone</span>
+                <input
+                  type="text"
+                  placeholder="e.g. +91 98450 00000"
+                  value={newBusinessDraft.phone}
+                  onChange={(e) =>
+                    setNewBusinessDraft((prev) => ({ ...prev, phone: e.target.value }))
+                  }
+                  className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 font-mono text-sm text-slate-900 focus:border-indigo-600 focus:outline-none"
+                />
+              </label>
+
+              <label className="block sm:col-span-2">
+                <span className="text-xs font-medium text-slate-700">Address</span>
+                <input
+                  type="text"
+                  placeholder="e.g. Kammanahalli Main Road, Bengaluru 560084"
+                  value={newBusinessDraft.address}
+                  onChange={(e) =>
+                    setNewBusinessDraft((prev) => ({ ...prev, address: e.target.value }))
+                  }
+                  className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-indigo-600 focus:outline-none"
+                />
+              </label>
+            </div>
+
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+              <label className="block">
+                <span className="text-xs font-medium text-slate-700">UPI ID (Optional)</span>
+                <input
+                  type="text"
+                  placeholder="e.g. myshop@okicici"
+                  value={newBusinessDraft.upiId}
+                  onChange={(e) =>
+                    setNewBusinessDraft((prev) => ({ ...prev, upiId: e.target.value }))
+                  }
+                  className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 font-mono text-xs text-slate-900 focus:border-indigo-600 focus:outline-none"
+                />
+              </label>
+              <label className="block sm:col-span-2">
+                <span className="text-xs font-medium text-slate-700">Payment & Delivery Terms</span>
+                <input
+                  type="text"
+                  value={newBusinessDraft.termsNote}
+                  onChange={(e) =>
+                    setNewBusinessDraft((prev) => ({ ...prev, termsNote: e.target.value }))
+                  }
+                  className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs text-slate-900 focus:border-indigo-600 focus:outline-none"
+                />
+              </label>
+            </div>
+
+            <div className="flex flex-wrap items-center justify-end gap-2 pt-2">
+              <button
+                type="button"
+                onClick={handleCancelNewBusiness}
+                className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-700 px-4 py-2 text-xs font-semibold text-white hover:bg-indigo-800"
+              >
+                <Plus className="h-3.5 w-3.5" aria-hidden="true" />
+                <span>Create Business</span>
+              </button>
+            </div>
+          </form>
+        </section>
+      )}
 
       {/* Business Details Form */}
       <section className="mt-6 rounded-xl border border-slate-200 bg-white p-6">
@@ -308,7 +666,25 @@ export function RateCardManager({
           <h2>Business & GST Details</h2>
         </div>
 
-        <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <label className="block">
+            <span className="text-xs font-medium text-slate-700">Display Name</span>
+            <input
+              type="text"
+              value={activeBusiness.presetName}
+              onChange={(e) => handleFieldChange('presetName', e.target.value)}
+              className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-indigo-600 focus:outline-none"
+            />
+          </label>
+          <label className="block">
+            <span className="text-xs font-medium text-slate-700">Category Label</span>
+            <input
+              type="text"
+              value={activeBusiness.categoryLabel}
+              onChange={(e) => handleFieldChange('categoryLabel', e.target.value)}
+              className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-indigo-600 focus:outline-none"
+            />
+          </label>
           <label className="block">
             <span className="text-xs font-medium text-slate-700">Legal / Trade Name</span>
             <input
@@ -318,6 +694,9 @@ export function RateCardManager({
               className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-indigo-600 focus:outline-none"
             />
           </label>
+        </div>
+
+        <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <label className="block">
             <div className="flex items-center justify-between">
               <span className="text-xs font-medium text-slate-700">GSTIN</span>
@@ -348,7 +727,7 @@ export function RateCardManager({
               className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 font-mono text-sm text-slate-900 focus:border-indigo-600 focus:outline-none"
             />
           </label>
-          <label className="block">
+          <label className="block sm:col-span-2">
             <span className="text-xs font-medium text-slate-700">Office Address</span>
             <input
               type="text"
@@ -532,7 +911,14 @@ export function RateCardManager({
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {activeBusiness.items.map((item) => {
+              {activeBusiness.items.length === 0 ? (
+                <tr>
+                  <td colSpan={6} className="py-8 text-center text-xs text-slate-500">
+                    No catalog items yet. Add items using the form above or click Import CSV to upload a rate card.
+                  </td>
+                </tr>
+              ) : (
+                activeBusiness.items.map((item) => {
                 const isEditing = editingItemId === item.id && editDraft;
                 return (
                   <tr key={item.id} className="hover:bg-slate-50/80">
@@ -672,7 +1058,8 @@ export function RateCardManager({
                     </td>
                   </tr>
                 );
-              })}
+              })
+              )}
             </tbody>
           </table>
         </div>
